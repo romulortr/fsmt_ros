@@ -1,0 +1,5 @@
+<library path="lib/libfsmt_base_local_planner">
+    <class name="FSMTBaseLocalPlanner" type="FSMTBaseLocalPlanner" base_class_type="nav_core::BaseLocalPlanner">
+        <description>  FSMT plugin for BaseLocalPlanner.</description>
+    </class>
+</library>
