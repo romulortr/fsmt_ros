@@ -22,6 +22,7 @@ public:
 
 private:
     ros::Subscriber laser_scan_sub_;
+    ros::Publisher marker_pub_;
     bool initialized_;
     std::vector<geometry_msgs::PoseStamped> global_plan_;
     sensor_msgs::LaserScan ros_laser_scan_;  

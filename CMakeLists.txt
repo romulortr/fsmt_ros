@@ -43,6 +43,8 @@ catkin_package(
 ## Build ##
 ###########
 
+add_subdirectory(fsmt)
+
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
@@ -51,6 +53,6 @@ include_directories(
 )
 
 add_library(fsmt_base_local_planner src/fsmt_base_local_planner.cpp)
-add_dependencies(fsmt_base_local_planner ${catkin_EXPORTED_TARGETS})
-target_link_libraries(fsmt_base_local_planner ${catkin_LIBRARIES})
+add_dependencies(fsmt_base_local_planner fsmt ${catkin_EXPORTED_TARGETS})
+target_link_libraries(fsmt_base_local_planner fsmt ${catkin_LIBRARIES})
 
