@@ -8,7 +8,9 @@
 #include <costmap_2d/costmap_2d_ros.h>
 #include <tf2_ros/buffer.h>
 
+#include <fsmt/data_structure/lidar.h>
 
+int ROS2FSMTLaserScan(const sensor_msgs::LaserScan& ros_laser_scan, fsmt_lidar_t* fsmt_lidar);
 
 class FSMTBaseLocalPlanner : public nav_core::BaseLocalPlanner {
 public:
@@ -26,6 +28,8 @@ private:
     bool initialized_;
     std::vector<geometry_msgs::PoseStamped> global_plan_;
     sensor_msgs::LaserScan ros_laser_scan_;  
+
+    fsmt_lidar_t *fsmt_lidar_;
 };
 
 #endif

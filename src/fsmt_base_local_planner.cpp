@@ -20,6 +20,8 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     // Subscribe to LiDAR scan topic
     laser_scan_sub_ = nh.subscribe("/front/scan", 1, &FSMTBaseLocalPlanner::lidarCallback, this);
 
+    fsmt_lidar_ = NULL;
+
 }
 
 bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>& plan) {
@@ -37,9 +39,20 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     // Example: Move forward with a constant velocity
     if(ros_laser_scan_.ranges.empty()) return false;
+    size_t number_of_beams = ros_laser_scan_.ranges.size();
+    if(fsmt_lidar_ == NULL)
+    {
+        fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
+    }
 
+    if(fsmt_lidar_->config.size.max < number_of_beams)
+    {
+        fsmt_lidar_destroy(&fsmt_lidar_);
+        fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
+    }
 
-    ROS_INFO("ros_laser_scan_.ranges[(int) ros_laser_scan_.ranges.size()/2]: %f\n", ros_laser_scan_.ranges[(int) ros_laser_scan_.ranges.size()/2]);
+    ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
+
     cmd_vel.linear.x = 0.0;
     cmd_vel.angular.z = 0.0;
 
@@ -70,11 +83,11 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     samples.max_number_of_points = 100;
 
     float length = 1;
-    float radius = 10;
+    float radius = 0.5;
 
     swept_volume(&samples, radius, length);
 
-    ROS_INFO("Number of points: %ld", samples.number_of_points);
+    ROS_INFO("Number of points in fsmt: %ld", fsmt_lidar_->measurements.size);
 
     // Add some points
     for (size_t i = 0; i < samples.number_of_points; i++) {
@@ -97,7 +110,32 @@ bool FSMTBaseLocalPlanner::isGoalReached() {
 }
 
 void FSMTBaseLocalPlanner::lidarCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
-    // Store the entire LaserScan message
     ros_laser_scan_ = *msg;
+}
 
+int ROS2FSMTLaserScan(const sensor_msgs::LaserScan& ros_laser_scan, fsmt_lidar_t* fsmt_lidar)
+{
+    if(ros_laser_scan.ranges.size() > fsmt_lidar->config.size.max)
+    {
+        return -1;
+    }
+
+    // Copying measurements.
+    size_t number_of_beams = ros_laser_scan.ranges.size();
+    const std::vector<float>& ros_ranges = ros_laser_scan.ranges;  // Avoid repeated access
+    float *fsmt_ranges = fsmt_lidar->measurements.ranges;
+    for (size_t i = 0; i < number_of_beams; ++i) {
+        fsmt_ranges[i] = ros_ranges[i];
+    }
+    fsmt_lidar->measurements.size = number_of_beams;
+    
+    // Copying configuration.
+    fsmt_lidar_config(fsmt_lidar, 
+        ros_laser_scan.angle_min, 
+        ros_laser_scan.angle_max, 
+        ros_laser_scan.range_min, 
+        ros_laser_scan.range_max, 
+        ros_laser_scan.angle_increment);
+
+    return 1;
 }
