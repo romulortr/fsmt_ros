@@ -82,13 +82,22 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     samples.number_of_points = 0;
     samples.max_number_of_points = 100;
 
+    fsmt_range_array_t polar;
+    polar.ranges = (fsmt_range_t*) malloc(sizeof(fsmt_range_t)*100);
+    polar.size = 0;
+    polar.max_size = 100;
+
     float length = 1;
     float radius = 0.5;
 
     swept_volume(&samples, radius, length);
+    cartesian_to_polar(&samples, &polar, fsmt_lidar_);
 
-    ROS_INFO("Number of points in fsmt: %ld", fsmt_lidar_->measurements.size);
-
+    ROS_INFO("Number of points in polar: %ld", polar.size);
+    for (size_t i=0; i< polar.size; i++) {
+        size_t index = polar.ranges[i].index;
+        ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
+    }
     // Add some points
     for (size_t i = 0; i < samples.number_of_points; i++) {
         geometry_msgs::Point p;
@@ -102,6 +111,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     marker_pub_.publish(points);
     // ROS_INFO("Published points to RViz");
     free (samples.points);
+    free (polar.ranges);
     return true;
 }
 
