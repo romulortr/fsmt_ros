@@ -53,8 +53,6 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
 
-    cmd_vel.linear.x = 0.0;
-    cmd_vel.angular.z = 0.0;
 
 
     visualization_msgs::Marker points;
@@ -92,11 +90,12 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     swept_volume(&samples, radius, length);
     cartesian_to_polar(&samples, &polar, fsmt_lidar_);
-
+    int is_available = availability(&polar, fsmt_lidar_);
     ROS_INFO("Number of points in polar: %ld", polar.size);
+    ROS_INFO("is available: %d", is_available);
     for (size_t i=0; i< polar.size; i++) {
         size_t index = polar.ranges[i].index;
-        ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
+        // ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
     }
     // Add some points
     for (size_t i = 0; i < samples.number_of_points; i++) {
@@ -112,6 +111,16 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // ROS_INFO("Published points to RViz");
     free (samples.points);
     free (polar.ranges);
+
+    geometry_msgs::Twist twist;
+    if(is_available == 1){
+        cmd_vel.linear.x = 0.1;
+        cmd_vel.angular.z = 0.0;
+    }else{
+        cmd_vel.linear.x = 0.0;
+        cmd_vel.angular.z = 0.0;
+    }
+
     return true;
 }
 
