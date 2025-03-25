@@ -75,30 +75,30 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     points.color.b = 0.0;
     points.color.a = 1.0;  // Fully visible
 
-    fsmt_point_array_t samples;
-    samples.points = (fsmt_point_t*) malloc(sizeof(fsmt_point_t)*100);
-    samples.number_of_points = 0;
-    samples.max_number_of_points = 100;
+    fsmt_cartesian_point_array_t samples;
+    samples.points = (fsmt_cartesian_point_t*) malloc(sizeof(fsmt_cartesian_point_t)*100);
+    samples.size = 0;
+    samples.max_size = 100;
 
-    fsmt_range_array_t polar;
-    polar.ranges = (fsmt_range_t*) malloc(sizeof(fsmt_range_t)*100);
-    polar.size = 0;
-    polar.max_size = 100;
+    // fsmt_sensor_array_t polar;
+    // polar.ranges = (fsmt_range_t*) malloc(sizeof(fsmt_range_t)*100);
+    // polar.size = 0;
+    // polar.max_size = 100;
 
-    float length = 1;
+    float length = -1;
     float radius = 0.5;
 
     swept_volume(&samples, radius, length);
-    cartesian_to_polar(&samples, &polar, fsmt_lidar_);
-    int is_available = availability(&polar, fsmt_lidar_);
-    ROS_INFO("Number of points in polar: %ld", polar.size);
-    ROS_INFO("is available: %d", is_available);
-    for (size_t i=0; i< polar.size; i++) {
-        size_t index = polar.ranges[i].index;
-        // ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
-    }
+    // cartesian_to_polar(&samples, &polar, fsmt_lidar_);
+    // int is_available = availability(&polar, fsmt_lidar_);
+    // ROS_INFO("Number of points in polar: %ld", polar.size);
+    // ROS_INFO("is available: %d", is_available);
+    // for (size_t i=0; i< polar.size; i++) {
+    //     size_t index = polar.ranges[i].index;
+    //     // ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
+    // }
     // Add some points
-    for (size_t i = 0; i < samples.number_of_points; i++) {
+    for (size_t i = 0; i < samples.size; i++) {
         geometry_msgs::Point p;
         p.x = samples.points[i].x;
         p.y = samples.points[i].y;  
@@ -110,16 +110,16 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     marker_pub_.publish(points);
     // ROS_INFO("Published points to RViz");
     free (samples.points);
-    free (polar.ranges);
+    // free (polar.ranges);
 
-    geometry_msgs::Twist twist;
-    if(is_available == 1){
-        cmd_vel.linear.x = 0.1;
-        cmd_vel.angular.z = 0.0;
-    }else{
+
+    // if(is_available == 1){
+    //     cmd_vel.linear.x = 0.0;
+    //     cmd_vel.angular.z = 0.0;
+    // }else{
         cmd_vel.linear.x = 0.0;
         cmd_vel.angular.z = 0.0;
-    }
+    // }
 
     return true;
 }
