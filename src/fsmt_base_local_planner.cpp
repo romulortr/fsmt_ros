@@ -3,6 +3,7 @@
 #include <pluginlib/class_list_macros.h>
 #include <visualization_msgs/Marker.h>
 
+
 PLUGINLIB_EXPORT_CLASS(FSMTBaseLocalPlanner, nav_core::BaseLocalPlanner)
 
 FSMTBaseLocalPlanner::FSMTBaseLocalPlanner() : initialized_(false) {}
@@ -19,9 +20,7 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     marker_pub_ = nh.advertise<visualization_msgs::Marker>("visualization_marker", 10);
     // Subscribe to LiDAR scan topic
     laser_scan_sub_ = nh.subscribe("/front/scan", 1, &FSMTBaseLocalPlanner::lidarCallback, this);
-
     fsmt_lidar_ = NULL;
-
 }
 
 bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>& plan) {
@@ -29,8 +28,71 @@ bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>
         ROS_WARN("Received an empty plan!");
         return false;
     }
+    std::cout << "RECEIVED NEW PLAN" << std::endl;
+    tf::StampedTransform tf_transform;
+    geometry_msgs::TransformStamped tf_to_base;
+    try {
+        // Fetch the transform from "odom" frame to "base_link" frame
+        tf_listener_.lookupTransform("/base_link", "/odom", ros::Time(0), tf_transform);
+        // Now convert tf::StampedTransform to geometry_msgs::TransformStamped
+       
+        // Fill in the header
+        tf_to_base.header.stamp = tf_transform.stamp_;
+        tf_to_base.header.frame_id = tf_transform.frame_id_;
+        tf_to_base.child_frame_id = tf_transform.child_frame_id_;
+        
+        // Fill in the translation
+        tf_to_base.transform.translation.x = tf_transform.getOrigin().x();
+        tf_to_base.transform.translation.y = tf_transform.getOrigin().y();
+        tf_to_base.transform.translation.z = tf_transform.getOrigin().z();
+        
+        // Fill in the rotation
+        tf_to_base.transform.rotation.x = tf_transform.getRotation().x();
+        tf_to_base.transform.rotation.y = tf_transform.getRotation().y();
+        tf_to_base.transform.rotation.z = tf_transform.getRotation().z();
+        tf_to_base.transform.rotation.w = tf_transform.getRotation().w();
+
+        // Now you can use 'transform_stamped' as needed (e.g., publish, log, etc.)
+        ROS_INFO("Converted Transform: [%.2f, %.2f, %.2f] (Translation), [%.2f, %.2f, %.2f, %.2f] (Rotation)",
+                 tf_to_base.transform.translation.x,
+                 tf_to_base.transform.translation.y,
+                 tf_to_base.transform.translation.z,
+                 tf_to_base.transform.rotation.x,
+                 tf_to_base.transform.rotation.y,
+                 tf_to_base.transform.rotation.z,
+                 tf_to_base.transform.rotation.w);
+    } catch (tf::TransformException &ex) {
+        ROS_ERROR("Could not get transform: %s", ex.what());
+        return false;
+    }
 
     global_plan_ = plan;
+    ROS_INFO_STREAM("-------------------");
+    fsmt_cartesian_point_array_t *array = fsmt_cartesian_point_array_create(100);
+    size_t *number_of_points = &array->size;
+    float distance=0;
+    float distance_to_last_point = 0;
+    for (size_t i=1; i<plan.size(); i++ ) {
+        float dx = plan[i].pose.position.x-plan[i-1].pose.position.x;
+        float dy = plan[i].pose.position.y-plan[i-1].pose.position.y;
+        distance += sqrtf(dx*dx+dy*dy);
+
+        geometry_msgs::PoseStamped pose_base_link;
+        tf2::doTransform(plan[i], pose_base_link, tf_to_base);  // Using the pre-fetched transform
+        if (distance - distance_to_last_point > 0.1){
+            printf("distance: %f, pose: %f, %f\n", distance,
+                pose_base_link.pose.position.x,
+                pose_base_link.pose.position.y);
+            array->points[*number_of_points].x = pose_base_link.pose.position.x;
+            array->points[*number_of_points].y = pose_base_link.pose.position.y;
+            *number_of_points += 1;
+            distance_to_last_point = distance;
+        }
+    }
+    printf("\n");
+
+    
+    fsmt_cartesian_point_array_destroy(&array);
     return true;
 }
 
@@ -86,9 +148,10 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // polar.max_size = 100;
 
     float length = -1;
-    float radius = 0.5;
+    float radius = -1;
 
     swept_volume(&samples, radius, length);
+
     // cartesian_to_polar(&samples, &polar, fsmt_lidar_);
     // int is_available = availability(&polar, fsmt_lidar_);
     // ROS_INFO("Number of points in polar: %ld", polar.size);
@@ -117,8 +180,9 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     //     cmd_vel.linear.x = 0.0;
     //     cmd_vel.angular.z = 0.0;
     // }else{
-        cmd_vel.linear.x = 0.0;
-        cmd_vel.angular.z = 0.0;
+    std::cout << "MOVING" << std::endl;
+    cmd_vel.linear.x = 0.05;
+    cmd_vel.angular.z = 0.0;
     // }
 
     return true;

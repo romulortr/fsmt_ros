@@ -3,10 +3,20 @@
 
 #include <ros/ros.h>
 #include <nav_core/base_local_planner.h>
-#include <geometry_msgs/Twist.h>
-#include <sensor_msgs/LaserScan.h>
 #include <costmap_2d/costmap_2d_ros.h>
-#include <tf2_ros/buffer.h>
+
+// Messages
+#include <geometry_msgs/Twist.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <sensor_msgs/LaserScan.h>
+
+// Core TF2
+#include <tf/transform_listener.h>
+// #include <tf2_ros/buffer.h>
+
+// For tf2::doTransform
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 #include <fsmt/data_structure/lidar.h>
 
@@ -29,7 +39,9 @@ private:
     std::vector<geometry_msgs::PoseStamped> global_plan_;
     sensor_msgs::LaserScan ros_laser_scan_;  
 
+    // tf2_ros::Buffer tf_buffer_;  // member variable
     fsmt_lidar_t *fsmt_lidar_;
+    tf::TransformListener tf_listener_;
 };
 
 #endif
