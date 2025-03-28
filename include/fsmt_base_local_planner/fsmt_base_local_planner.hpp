@@ -42,6 +42,9 @@ private:
     // tf2_ros::Buffer tf_buffer_;  // member variable
     fsmt_lidar_t *fsmt_lidar_;
     tf::TransformListener tf_listener_;
+
+    //
+
 };
 
 #endif
