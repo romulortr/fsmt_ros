@@ -4,6 +4,7 @@
 #include <visualization_msgs/Marker.h>
 
 #include <fsmt/score.h>
+#include <fsmt_base_local_planner/utils.hpp>
 
 PLUGINLIB_EXPORT_CLASS(FSMTBaseLocalPlanner, nav_core::BaseLocalPlanner)
 
@@ -22,6 +23,9 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     // Subscribe to LiDAR scan topic
     laser_scan_sub_ = nh.subscribe("/front/scan", 1, &FSMTBaseLocalPlanner::lidarCallback, this);
     fsmt_lidar_ = NULL;
+
+    // FSMT memory allocation.
+    plan_array_ = fsmt_cartesian_point_array_create(100);
 }
 
 bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>& plan) {
@@ -35,10 +39,11 @@ bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>
 }
 
 bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel) {
+    // wait for a global plan.
     if (global_plan_.empty()) return false;
-
-    // Example: Move forward with a constant velocity
+    // wait for a valid lidar reading.
     if(ros_laser_scan_.ranges.empty()) return false;
+    
     size_t number_of_beams = ros_laser_scan_.ranges.size();
     if(fsmt_lidar_ == NULL)
     {
@@ -51,10 +56,60 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
     }
 
+    // The global plan must be transformed from its current frame (e.g., map or odom frame)
+    // to the robot frame (e.g., base_link).
+    // First, get the transform from global plan frame to robot frame.
+    tf::StampedTransform tf_transform;
+    GetTransform("base_link", global_plan_.front().header.frame_id, 
+        global_plan_.front().header.stamp, tf_transform);
+    // Next we convert the message from TF standard to geometry message.
+    geometry_msgs::TransformStamped geom_transform;
+    tf_transform_to_geometry_transform(tf_transform, geom_transform);
+    // Transform global to robot frame.
+    size_t *number_of_points = &plan_array_->size;
+    float distance=0, distance_to_last_point=0;
+    plan_array_->size = 0;
+    for (size_t i=1; i<global_plan_.size(); i++ ) {
+        float dx = global_plan_[i].pose.position.x-global_plan_[i-1].pose.position.x;
+        float dy = global_plan_[i].pose.position.y-global_plan_[i-1].pose.position.y;
+        distance += sqrtf(dx*dx+dy*dy);
+
+        if (distance - distance_to_last_point > 0.1){
+            geometry_msgs::PoseStamped pose_base_link;
+            tf2::doTransform(global_plan_[i], pose_base_link, geom_transform);  // Using the pre-fetched transform
+            plan_array_->points[*number_of_points].x = pose_base_link.pose.position.x;
+            plan_array_->points[*number_of_points].y = pose_base_link.pose.position.y;
+            *number_of_points += 1;
+            distance_to_last_point = distance;
+        }
+        if (distance > 1){
+            break;
+        }
+    } 
+
+    fsmt_circle_t circle;
+    fsmt_circle_fitting_kasa(plan_array_, &circle);
+
+    cmd_vel.linear.x = 1.;
+    if(fabs(circle.radius) > 10 ){
+        cmd_vel.angular.z = 0.0;
+    }else{
+        cmd_vel.angular.z = cmd_vel.linear.x/circle.radius;
+    }
+
+    float length = 1;
+    float radius = circle.radius;
+
+    fsmt_cartesian_point_array_t samples;
+    samples.points = (fsmt_cartesian_point_t*) malloc(sizeof(fsmt_cartesian_point_t)*100);
+    samples.size = 0;
+    samples.max_size = 100;
+
+    swept_volume(&samples, radius, length);
+
     ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
 
-
-
+    // Add some points
     visualization_msgs::Marker points;
     points.header.frame_id = "base_link";  // Change frame ID if needed
     points.header.stamp = ros::Time::now();
@@ -75,96 +130,6 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     points.color.b = 0.0;
     points.color.a = 1.0;  // Fully visible
 
-    fsmt_cartesian_point_array_t samples;
-    samples.points = (fsmt_cartesian_point_t*) malloc(sizeof(fsmt_cartesian_point_t)*100);
-    samples.size = 0;
-    samples.max_size = 100;
-
-    // fsmt_sensor_array_t polar;
-    // polar.ranges = (fsmt_range_t*) malloc(sizeof(fsmt_range_t)*100);
-    // polar.size = 0;
-    // polar.max_size = 100;
-
-    tf::StampedTransform tf_transform;
-    geometry_msgs::TransformStamped tf_to_base;
-    try{
-        // Fetch the transform from "odom" frame to "base_link" frame
-        tf_listener_.lookupTransform("/base_link", global_plan_.front().header.frame_id, 
-            global_plan_.front().header.stamp, tf_transform);
-        // Now convert tf::StampedTransform to geometry_msgs::TransformStamped
-        // Fill in the header
-        tf_to_base.header.stamp = tf_transform.stamp_;
-        tf_to_base.header.frame_id = tf_transform.frame_id_;
-        tf_to_base.child_frame_id = tf_transform.child_frame_id_;
-        
-        // Fill in the translation
-        tf_to_base.transform.translation.x = tf_transform.getOrigin().x();
-        tf_to_base.transform.translation.y = tf_transform.getOrigin().y();
-        tf_to_base.transform.translation.z = tf_transform.getOrigin().z();
-        
-        // Fill in the rotation
-        tf_to_base.transform.rotation.x = tf_transform.getRotation().x();
-        tf_to_base.transform.rotation.y = tf_transform.getRotation().y();
-        tf_to_base.transform.rotation.z = tf_transform.getRotation().z();
-        tf_to_base.transform.rotation.w = tf_transform.getRotation().w();
-    } catch (tf::TransformException &ex) {
-        ROS_ERROR("Could not get transform: %s", ex.what());
-        return false;
-    }
-    fsmt_cartesian_point_array_t *plan_array = fsmt_cartesian_point_array_create(100);
-    size_t *number_of_points = &plan_array->size;
-    float distance=0;
-    float distance_to_last_point = 0;
-    for (size_t i=1; i<global_plan_.size(); i++ ) {
-        float dx = global_plan_[i].pose.position.x-global_plan_[i-1].pose.position.x;
-        float dy = global_plan_[i].pose.position.y-global_plan_[i-1].pose.position.y;
-        distance += sqrtf(dx*dx+dy*dy);
-
-        geometry_msgs::PoseStamped pose_base_link;
-        tf2::doTransform(global_plan_[i], pose_base_link, tf_to_base);  // Using the pre-fetched transform
-        if (distance - distance_to_last_point > 0.1){
-            plan_array->points[*number_of_points].x = pose_base_link.pose.position.x;
-            plan_array->points[*number_of_points].y = pose_base_link.pose.position.y;
-            *number_of_points += 1;
-            distance_to_last_point = distance;
-        }
-        if (distance > 1){
-            break;
-        }
-    } 
-
-    fsmt_circle_t circle;
-    fsmt_circle_fitting_kasa(plan_array, &circle);
-    fsmt_cartesian_point_array_destroy(&plan_array);
-
-
-
-    // if(is_available == 1){
-    //     cmd_vel.linear.x = 0.0;
-    //     cmd_vel.angular.z = 0.0;
-    // }else{
-    std::cout << "MOVING" << std::endl;
-    cmd_vel.linear.x = 1.;
-    if(fabs(circle.radius) > 10 ){
-        cmd_vel.angular.z = 0.0;
-    }else{
-        cmd_vel.angular.z = cmd_vel.linear.x/circle.radius;
-    }
-
-    float length = 1;
-    float radius = circle.radius;
-
-    swept_volume(&samples, radius, length);
-
-    // cartesian_to_polar(&samples, &polar, fsmt_lidar_);
-    // int is_available = availability(&polar, fsmt_lidar_);
-    // ROS_INFO("Number of points in polar: %ld", polar.size);
-    // ROS_INFO("is available: %d", is_available);
-    // for (size_t i=0; i< polar.size; i++) {
-    //     size_t index = polar.ranges[i].index;
-    //     // ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
-    // }
-    // Add some points
     for (size_t i = 0; i < samples.size; i++) {
         geometry_msgs::Point p;
         p.x = samples.points[i].x;
@@ -175,9 +140,8 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     }
 
     marker_pub_.publish(points);
-    // ROS_INFO("Published points to RViz");
+
     free (samples.points);
-    // free (polar.ranges);
 
 
     return true;
@@ -207,7 +171,7 @@ int ROS2FSMTLaserScan(const sensor_msgs::LaserScan& ros_laser_scan, fsmt_lidar_t
     }
     fsmt_lidar->measurements.size = number_of_beams;
     
-    // Copying configuration.
+    // Copy configuration.
     fsmt_lidar_config(fsmt_lidar, 
         ros_laser_scan.angle_min, 
         ros_laser_scan.angle_max, 
@@ -217,3 +181,42 @@ int ROS2FSMTLaserScan(const sensor_msgs::LaserScan& ros_laser_scan, fsmt_lidar_t
 
     return 1;
 }
+
+bool FSMTBaseLocalPlanner::GetTransform(std::string to_frame, 
+    std::string from_frame, ros::Time timestamp, tf::StampedTransform tf_transform)
+{
+    try{
+        // Fetch the transform from "odom" frame to "base_link" frame
+        tf_listener_.lookupTransform(to_frame, from_frame, 
+            timestamp, tf_transform);
+    } catch (tf::TransformException &ex) {
+        ROS_ERROR("Could not get transform: %s", ex.what());
+        return false;
+    }
+}
+
+
+
+//DESTROY
+//     fsmt_cartesian_point_array_destroy(&plan_array);
+
+    // cartesian_to_polar(&samples, &polar, fsmt_lidar_);
+    // int is_available = availability(&polar, fsmt_lidar_);
+    // ROS_INFO("Number of points in polar: %ld", polar.size);
+    // ROS_INFO("is available: %d", is_available);
+    // for (size_t i=0; i< polar.size; i++) {
+    //     size_t index = polar.ranges[i].index;
+    //     // ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
+    // }
+
+    // fsmt_sensor_array_t polar;
+    // polar.ranges = (fsmt_range_t*) malloc(sizeof(fsmt_range_t)*100);
+    // polar.size = 0;
+    // polar.max_size = 100;
+
+
+    // if(is_available == 1){
+    //     cmd_vel.linear.x = 0.0;
+    //     cmd_vel.angular.z = 0.0;
+    // }else{
+    // free (polar.ranges);

@@ -19,6 +19,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 #include <fsmt/data_structure/lidar.h>
+#include <fsmt/data_structure/cartesian_point.h>
 
 int ROS2FSMTLaserScan(const sensor_msgs::LaserScan& ros_laser_scan, fsmt_lidar_t* fsmt_lidar);
 
@@ -32,6 +33,9 @@ public:
 
     void lidarCallback(const sensor_msgs::LaserScan::ConstPtr& msg);
 
+    bool GetTransform(std::string to_frame, std::string from_frame, 
+        ros::Time timestamp, tf::StampedTransform tf_transform);
+
 private:
     ros::Subscriber laser_scan_sub_;
     ros::Publisher marker_pub_;
@@ -44,7 +48,7 @@ private:
     tf::TransformListener tf_listener_;
 
     //
-
+    fsmt_cartesian_point_array_t *plan_array_;
 };
 
 #endif
