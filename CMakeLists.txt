@@ -57,5 +57,5 @@ include_directories(
 
 add_library(fsmt_base_local_planner src/fsmt_base_local_planner.cpp src/utils.cpp)
 add_dependencies(fsmt_base_local_planner fsmt ${catkin_EXPORTED_TARGETS})
-target_link_libraries(fsmt_base_local_planner fsmt ${catkin_LIBRARIES})
+target_link_libraries(fsmt_base_local_planner fsmt m ${catkin_LIBRARIES})
 
