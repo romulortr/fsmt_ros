@@ -32,13 +32,18 @@ public:
     bool isGoalReached() override;
 
     void lidarCallback(const sensor_msgs::LaserScan::ConstPtr& msg);
+    void fsmt_point_array_to_marker(visualization_msgs::Marker &marker, 
+        std::string frame_id, fsmt_cartesian_point_array_t &fsmt_array,
+        float color[3])
 
     bool GetTransform(std::string to_frame, std::string from_frame, 
         ros::Time timestamp, tf::StampedTransform tf_transform);
 
 private:
     ros::Subscriber laser_scan_sub_;
-    ros::Publisher marker_pub_;
+    ros::Publisher marker_fsmt_pub_;
+    ros::Publisher marker_vehicle_at_final_time_pub_;
+
     bool initialized_;
     std::vector<geometry_msgs::PoseStamped> global_plan_;
     sensor_msgs::LaserScan ros_laser_scan_;  

@@ -23,7 +23,10 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     ros::NodeHandle nh("~/" + name);
 
     // Publisher
-    marker_pub_ = nh.advertise<visualization_msgs::Marker>("visualization_marker", 10);
+    marker_fsmt_pub_ = nh.advertise<visualization_msgs::Marker>("marker_fsmt_tube", 10);
+    marker_vehicle_at_final_time_pub_ = nh.advertise<visualization_msgs::Marker>
+        ("marker_vehicle_at_final_time_pub_", 10);
+
     // Subscribe to LiDAR scan topic
     laser_scan_sub_ = nh.subscribe("/front/scan", 1, &FSMTBaseLocalPlanner::lidarCallback, this);
     fsmt_lidar_ = NULL;
@@ -70,14 +73,9 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     // Transform from global to robot frame.
     fsmt_point_array_frame_transformation(&fsmt_transform, plan_array_, plan_array_);
-    
-
-    // fsmt_circle_t circle;
-    // fsmt_circle_fitting_kasa(plan_array_, &circle);
-
 
     // Core Library
-    fsmt_cartesian_tube_t *tube = fsmt_cartesian_tube_create(100) ;
+    fsmt_cartesian_tube_t *tube[3];
     fsmt_params_t params = {
         .sampling = {
             .spatial_step = 0.1
@@ -91,23 +89,22 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
         }
     };
-    fsmt_maneuver_t maneuver = {
-        .radius = -1,
-        .length = 1.57
-    };
-
-    fsmt_cartesian_tube_compute(tube, &params, &maneuver);
     
-    fsmt_cartesian_point_array_t samples;
-    samples.points = (fsmt_cartesian_point_t*) malloc(sizeof(fsmt_cartesian_point_t)*100);
-    samples.size = 4;
-    samples.max_size = 100;   
+    float radius[3] = {-1,1000,1};
+    for(size_t i=0; i<3; i++)
+    {
+        fsmt_maneuver_t maneuver = {
+            .radius = radius[i],
+            .length = 1.57
+        };
+        tube[i] = fsmt_cartesian_tube_create(100) ;
+        fsmt_cartesian_tube_compute(tube[i], &params, &maneuver);
+    }
 
-    samples.points[0] = tube->at_final_time.p1_front_right;
-    samples.points[1] = tube->at_final_time.p2_front_left;
-    samples.points[2] = tube->at_final_time.p3_rear_left;
-    samples.points[3] = tube->at_final_time.p4_rear_right;
-    // samples.points[i] = tube.at
+    
+    // fsmt_circle_t circle;
+    // fsmt_circle_fitting_kasa(plan_array_, &circle);
+
     // size_t number_of_beams = ros_laser_scan_.ranges.size();
     // if(fsmt_lidar_ == NULL)
     // {
@@ -121,53 +118,39 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // }
     // // ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
 
-    // Add some points
-    visualization_msgs::Marker points;
-    points.header.frame_id = "base_link";  // Change frame ID if needed
-    points.header.stamp = ros::Time::now();
-    points.ns = "points";
-    points.action = visualization_msgs::Marker::ADD;
-    points.pose.orientation.w = 1.0;
+    // Visualization markers
+    visualization_msgs::Marker marker_vehicle_at_final_time;
+    fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
+        tube->at_final_time.p1_front_right,
+        tube->at_final_time.p2_front_left,
+        tube->at_final_time.p3_rear_left,
+        tube->at_final_time.p4_rear_right
+    };   
+    fsmt_point_array_to_marker(marker_vehicle_at_final_time, 
+        "base_link",
+        vehicle_edge_at_final_time,
+        4,
+        {1.0,0.0,0.0});
 
-    points.id = 0;
-    points.type = visualization_msgs::Marker::POINTS;
+    visualization_msgs::Marker marker_fsmt;
+    fsmt_point_array_to_marker(marker_fsmt, 
+        "base_link",
+        *(tube[1]->samples),
+        {0.0,1.0,0.0});
 
-    // Set scale for point size
-    points.scale.x = 0.1;  // Width of points
-    points.scale.y = 0.1;
-
-    // Set color (RGBA)
-    points.color.r = 1.0;
-    points.color.g = 0.0;
-    points.color.b = 0.0;
-    points.color.a = 1.0;  // Fully visible
-
-   
-    for (size_t i = 0; i < samples.size; i++) {
-        geometry_msgs::Point p;
-        p.x = samples.points[i].x;
-        p.y = samples.points[i].y;  
-        p.z = 0;
-
-        points.points.push_back(p);
-    }
-
-    fsmt_cartesian_point_array_t *tube_samples = tube->samples;
-    for (size_t i = 0; i < tube_samples->size; i++) {
-        geometry_msgs::Point p;
-        p.x = tube_samples->points[i].x;
-        p.y = tube_samples->points[i].y;  
-        p.z = 0;
-
-        points.points.push_back(p);
-    }
-
-    marker_pub_.publish(points);
+    marker_fsmt_pub_.publish(points);
+    marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
 
     cmd_vel.linear.x = 0;
     cmd_vel.angular.z = 0.0;
     free (samples.points);
-    fsmt_cartesian_tube_destroy(&tube);
+
+    for(size_t i=0; i<3; i++)
+    {
+        fsmt_cartesian_tube_destroy(&tube[i]);
+    }
+
+
 
     return true;
 }
@@ -178,6 +161,70 @@ bool FSMTBaseLocalPlanner::isGoalReached() {
 
 void FSMTBaseLocalPlanner::lidarCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
     ros_laser_scan_ = *msg;
+}
+
+void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 
+    fsmt_cartesian_point_t *points, size_t size, float color[3])
+{
+    marker.header.frame_id = frame_id;  // Change frame ID if needed
+    marker.header.stamp = ros::Time::now();
+    marker.ns = "points";
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::POINTS;
+
+    // Set scale for point size
+    marker.scale.x = 0.1;  // Width of points
+    marker.scale.y = 0.1;
+
+    // Set color (RGBA)
+    marker.color.r = color[0];
+    marker.color.g = color[1];
+    marker.color.b = color[2];
+    marker.color.a = 1.0;  // Fully visible
+ 
+    for (size_t i = 0; i < fsmt_size; i++) {
+        geometry_msgs::Point p;
+        p.x = points[i].x;
+        p.y = points[i].y;  
+        p.z = 0;
+
+        marker.points.push_back(p);
+    }
+}
+
+void fsmt_point_array_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 
+    fsmt_cartesian_point_array_t &fsmt_array, float color[3])
+{
+    marker.header.frame_id = frame_id;  // Change frame ID if needed
+    marker.header.stamp = ros::Time::now();
+    marker.ns = "points";
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
+
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::POINTS;
+
+    // Set scale for point size
+    marker.scale.x = 0.1;  // Width of points
+    marker.scale.y = 0.1;
+
+    // Set color (RGBA)
+    marker.color.r = color[0];
+    marker.color.g = color[1];
+    marker.color.b = color[2];
+    marker.color.a = 1.0;  // Fully visible
+ 
+    for (size_t i = 0; i < fsmt_array.size; i++) {
+        geometry_msgs::Point p;
+        p.x = fsmt_array.points[i].x;
+        p.y = fsmt_array.points[i].y;  
+        p.z = 0;
+
+        marker.points.push_back(p);
+    }
 }
 
 int ROS2FSMTLaserScan(const sensor_msgs::LaserScan& ros_laser_scan, fsmt_lidar_t* fsmt_lidar)
