@@ -10,6 +10,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <sensor_msgs/LaserScan.h>
+#include <visualization_msgs/Marker.h>
 
 // Core TF2
 #include <tf/transform_listener.h>
@@ -33,16 +34,17 @@ public:
 
     void lidarCallback(const sensor_msgs::LaserScan::ConstPtr& msg);
     void fsmt_point_array_to_marker(visualization_msgs::Marker &marker, 
-        std::string frame_id, fsmt_cartesian_point_array_t &fsmt_array,
-        float color[3])
+        std::string frame_id, fsmt_cartesian_point_array_t *fsmt_array,
+        float color[3]);
 
     bool GetTransform(std::string to_frame, std::string from_frame, 
-        ros::Time timestamp, tf::StampedTransform tf_transform);
+        ros::Time timestamp, tf::StampedTransform &tf_transform);
 
 private:
     ros::Subscriber laser_scan_sub_;
     ros::Publisher marker_fsmt_pub_;
     ros::Publisher marker_vehicle_at_final_time_pub_;
+    ros::Publisher marker_local_goal_pub_;
 
     bool initialized_;
     std::vector<geometry_msgs::PoseStamped> global_plan_;
@@ -54,6 +56,10 @@ private:
 
     //
     fsmt_cartesian_point_array_t *plan_array_;
+    float plan_orientation_[400];
 };
+
+void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 
+    fsmt_cartesian_point_t *points, size_t size, float color[3]);
 
 #endif

@@ -37,12 +37,16 @@ void tf_transform_to_fsmt_transform(tf::StampedTransform& tf_transform,
     // Fill in rotation.
     fsmt_transform.cos_yaw = cosf(yaw);
     fsmt_transform.sin_yaw = sinf(yaw);
-        
 }
 
-// void tf_transform_to_fsmt_pose(const tf::StampedTransform& transform) {
-//     pose.x = transform.getOrigin().x();
-//     pose.y = transform.getOrigin().y();
-//     pose.yaw = tf::getYaw(transform.getRotation());  // Convert quaternion to yaw
-//     return pose;
-// }
+void tf_transform_to_fsmt_pose(tf::StampedTransform& tf_transform,
+    fsmt_pose_t *fsmt_pose){
+    // Fill in the translation.
+    fsmt_pose->x = tf_transform.getOrigin().x();
+    fsmt_pose->y = tf_transform.getOrigin().y();
+    
+    // Get rotation as quaternion.
+    tf::Quaternion q = tf_transform.getRotation();
+    // Extracts yaw. 
+    fsmt_pose->theta = (float) tf::getYaw(q);
+}
