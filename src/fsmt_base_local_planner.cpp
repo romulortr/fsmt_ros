@@ -85,7 +85,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     fsmt_point_array_frame_transformation(&fsmt_transform, plan_array_, plan_array_);
 
     size_t number_of_curvatures = 15;
-    float max_path_lenth = 0.75*1.57;
+    float max_path_lenth = .75*1.57;
     // float radius[number_of_curvatures] = {-3, -2, -1.5, -1, -0.75, 1000, 0.75 , 1, 1.5, 2, 3};
     float radius[number_of_curvatures] = {1000, 5, -5, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
     // Core Library
@@ -95,10 +95,10 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
             .spatial_step = 0.1
         },
         .vehicle = {
-            .width = 0.45,
-            .lenght = 0.5,
-            .distance_axle_to_front = 0.25,
-            .distance_axle_to_rear = 0.25,
+            .width = 0.5,
+            .lenght = 0.4,
+            .distance_axle_to_front = 0.2,
+            .distance_axle_to_rear = 0.2,
             .maximum_curvature = 10,
 
         }
@@ -139,6 +139,10 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     std::cout << "EVALUATING" << std::endl;
     int des_index = -1;
+    float best_metric = 100;
+    fsmt_cartesian_point_t local_goal = {
+        .x = plan_array_->points[plan_local_goal_index].x,
+        .y = plan_array_->points[plan_local_goal_index].y};
     for(size_t i=0; i<number_of_curvatures; i++)
     {
 
@@ -154,50 +158,57 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         int is_available = availability(sensor, fsmt_lidar_);
         
         // score.
-        fsmt_cartesian_point_t local_goal = {
-            .x = plan_array_->points[plan_local_goal_index].x,
-            .y = plan_array_->points[plan_local_goal_index].y};
 
-        int distance_to_local_goal = fsmt_distance_to_local_goal(
+
+        int distance_to_local_goal = !fsmt_distance_to_local_goal(
             tube[i], &local_goal);
         // int distance_to_local_goal = fsmt_distance_to_local_goal(
         //         tube[i], &local_goal);
-
-
-        std::cout << "Tube #" << i <<  ": available " << is_available << ".. distance: " << distance_to_local_goal << std::endl;
+        float distance_to_local_goal_continuous = 0;
+        if (distance_to_local_goal != 0){
+            distance_to_local_goal_continuous = fsmt_distance_to_rectangle(
+                tube[i], &local_goal);
+        }else{
+            distance_to_local_goal_continuous = -fsmt_distance_to_rectangle(
+                tube[i], &local_goal);           
+        }
+        std::cout << "Tube #" << i <<  ": available " << is_available << ".. distance (discrete): " << distance_to_local_goal <<
+            "distance (continuous): " << distance_to_local_goal_continuous << std::endl;
         if (is_available == 0)
             continue;
     
-        // visualization
-        if(distance_to_local_goal == 1){
-            fsmt_point_array_to_marker(marker_fsmt, 
-                "base_link",
-                tube[i]->samples,
-                marker_fsmt_color);
-            fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
-                tube[i]->at_final_time.p1_front_right,
-                tube[i]->at_final_time.p2_front_left,
-                tube[i]->at_final_time.p3_rear_left,
-                tube[i]->at_final_time.p4_rear_right
-            };   
-            fsmt_points_to_marker(marker_vehicle_at_final_time,
-                "base_link",
-                vehicle_edge_at_final_time,
-                4,
-                marker_vehicle_at_final_time_color
-            );
-            fsmt_points_to_marker(marker_local_goal,
-                "base_link",
-                &local_goal,
-                1,
-                marker_local_goal_color
-            );
-
+        float current_metric = distance_to_local_goal_continuous + distance_to_local_goal*10;
+        if (current_metric < best_metric ){
             des_index = i;
-            break;
+            best_metric = current_metric;
         }
-    }
 
+    }
+    // visualization
+    if(des_index >= 0){
+        fsmt_point_array_to_marker(marker_fsmt, 
+            "base_link",
+            tube[des_index]->samples,
+            marker_fsmt_color);
+        fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
+            tube[des_index]->at_final_time.p1_front_right,
+            tube[des_index]->at_final_time.p2_front_left,
+            tube[des_index]->at_final_time.p3_rear_left,
+            tube[des_index]->at_final_time.p4_rear_right
+        };   
+        fsmt_points_to_marker(marker_vehicle_at_final_time,
+            "base_link",
+            vehicle_edge_at_final_time,
+            4,
+            marker_vehicle_at_final_time_color
+        );
+        fsmt_points_to_marker(marker_local_goal,
+            "base_link",
+            &local_goal,
+            1,
+            marker_local_goal_color
+        );
+    }
     
     // fsmt_circle_t circle;
     // fsmt_circle_fitting_kasa(plan_array_, &circle);
@@ -227,10 +238,10 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     std::cout << "des_index: " << des_index << std::endl;  
     if(des_index > -1){
         std::cout << "radius[des_index]: " <<  radius[des_index] << std::endl;  
-        cmd_vel.linear.x = 0.3;
+        cmd_vel.linear.x = 1;
         cmd_vel.angular.z = cmd_vel.linear.x/radius[des_index];
     }else{
-        cmd_vel.linear.x = -.1;
+        cmd_vel.linear.x = 0;
         cmd_vel.angular.z = 0;
     }
 
