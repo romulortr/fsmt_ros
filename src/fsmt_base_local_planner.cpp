@@ -84,10 +84,10 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // Transform from global to robot frame.
     fsmt_point_array_frame_transformation(&fsmt_transform, plan_array_, plan_array_);
 
-    size_t number_of_curvatures = 15;
-    float max_path_lenth = .75*1.57;
+    size_t number_of_curvatures = 17;
+    float max_path_lenth = .5*1.57;
     // float radius[number_of_curvatures] = {-3, -2, -1.5, -1, -0.75, 1000, 0.75 , 1, 1.5, 2, 3};
-    float radius[number_of_curvatures] = {1000, 5, -5, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
+    float radius[number_of_curvatures] = {1000, 5, -5, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75, 0.5, -0.5};
     // Core Library
     fsmt_cartesian_tube_t *tube[number_of_curvatures];
     fsmt_params_t params = {
@@ -238,7 +238,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     std::cout << "des_index: " << des_index << std::endl;  
     if(des_index > -1){
         std::cout << "radius[des_index]: " <<  radius[des_index] << std::endl;  
-        cmd_vel.linear.x = 1;
+        cmd_vel.linear.x = 0.3;
         cmd_vel.angular.z = cmd_vel.linear.x/radius[des_index];
     }else{
         cmd_vel.linear.x = 0;
