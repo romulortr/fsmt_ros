@@ -9,7 +9,6 @@
 #include <fsmt_base_local_planner/utils.hpp>
 
 int count = 0;
-float msign = 1.0;
 PLUGINLIB_EXPORT_CLASS(FSMTBaseLocalPlanner, nav_core::BaseLocalPlanner)
 
 FSMTBaseLocalPlanner::FSMTBaseLocalPlanner() : initialized_(false) {}
@@ -90,7 +89,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // float radius[number_of_curvatures] = {-3, -2, -1.5, -1, -0.75, 1000, 0.75 , 1, 1.5, 2, 3};
     float radius[number_of_curvatures] = {1000, 5, -5, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
     // Core Library
-    fsmt_cartesian_tube_t *tube[number_of_curvatures];
+    fsmt_cartesian_tube_t *tube[2*number_of_curvatures];
     fsmt_params_t params = {
         .sampling = {
             .spatial_step = 0.1
@@ -104,10 +103,13 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
         }
     };
-    
-    if (msign < 0)
-        max_path_length = -max_path_length;
-
+    fsmt_maneuver_t maneuver[2*number_of_curvatures];
+    for(size_t i=0; i<number_of_curvatures; i++){
+        maneuver[i].length = max_path_length;
+        maneuver[i].radius = radius[i];
+        maneuver[i+number_of_curvatures].length = -max_path_length;
+        maneuver[i+number_of_curvatures].radius = radius[i];
+    }
 
     // visualization
     float marker_fsmt_color[3] = {0.0,1.0,0.0};
@@ -119,7 +121,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     float path_length = 0;
     size_t plan_local_goal_index = 0;
-    while (path_length < msign*max_path_length && plan_local_goal_index+1 < plan_array_->size){
+    while (path_length < max_path_length && plan_local_goal_index+1 < plan_array_->size){
         float plan_step_dx = global_plan_[plan_local_goal_index+1].pose.position.x - global_plan_[plan_local_goal_index].pose.position.x;
         float plan_step_dy = global_plan_[plan_local_goal_index+1].pose.position.y - global_plan_[plan_local_goal_index].pose.position.y;   
         path_length += sqrtf(plan_step_dx*plan_step_dx + plan_step_dy*plan_step_dy);
@@ -145,14 +147,14 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     fsmt_cartesian_point_t local_goal = {
         .x = plan_array_->points[plan_local_goal_index].x,
         .y = plan_array_->points[plan_local_goal_index].y};
-    for(size_t i=0; i<number_of_curvatures; i++)
+    for(size_t i=0; i<2*number_of_curvatures; i++)
     {
-        fsmt_maneuver_t maneuver = {
-            .radius = radius[i],
-            .length = max_path_length
-        };        
+        // fsmt_maneuver_t maneuver = {
+        //     .radius = radius[i],
+        //     .length = max_path_length
+        // };        
         tube[i] = fsmt_cartesian_tube_create(100) ;
-        fsmt_cartesian_tube_compute(tube[i], &params, &maneuver);
+        fsmt_cartesian_tube_compute(tube[i], &params, &maneuver[i]);
         fsmt_sensor_point_array_reset(sensor);
         cartesian_to_sensor(tube[i]->samples, sensor, fsmt_lidar_);
 
@@ -182,6 +184,10 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
             des_index = i;
             best_metric = current_metric;
         }
+
+        // if(i+1 == number_of_curvatures && des_index >= 0 && best_metric < 0.5){
+        //     break;
+        // }
 
     }
     // visualization
@@ -213,23 +219,6 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // fsmt_circle_t circle;
     // fsmt_circle_fitting_kasa(plan_array_, &circle);
 
-
-
-    // Visualization markers
-    // visualization_msgs::Marker marker_vehicle_at_final_time;
-    // fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
-    //     tube->at_final_time.p1_front_right,
-    //     tube->at_final_time.p2_front_left,
-    //     tube->at_final_time.p3_rear_left,
-    //     tube->at_final_time.p4_rear_right
-    // };   
-    // fsmt_point_array_to_marker(marker_vehicle_at_final_time, 
-    //     "base_link",
-    //     vehicle_edge_at_final_time,
-    //     4,
-    //     {1.0,0.0,0.0});
-
-
     // Publish
     marker_fsmt_pub_.publish(marker_fsmt);
     marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
@@ -237,11 +226,10 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     std::cout << "des_index: " << des_index << std::endl;  
     if(des_index > -1){
-        std::cout << "radius[des_index]: " <<  radius[des_index] << std::endl;  
-        cmd_vel.linear.x = (double) msign*1.25;
-        cmd_vel.angular.z = cmd_vel.linear.x/radius[des_index];
+        std::cout << "maneuver[des_index].radius: " <<  maneuver[des_index].radius << std::endl;  
+        cmd_vel.linear.x =  (maneuver[des_index].length/fabs(maneuver[des_index].length)) * 0.5;
+        cmd_vel.angular.z = cmd_vel.linear.x/maneuver[des_index].radius;
     }else{
-        msign = -msign;
         cmd_vel.linear.x = 0;
         cmd_vel.angular.z = 0;
     }
