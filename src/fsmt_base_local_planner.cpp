@@ -34,6 +34,48 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
 
     // FSMT memory allocation.
     plan_array_ = fsmt_cartesian_point_array_create(100);
+
+    // motion tubes
+    size_t number_of_tubes = 15;
+    float max_path_length = .5*1.57;
+    float radius[number_of_tubes] = {1000, 5, -5, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
+    // Core Library
+    navigation_.tubes = fsmt_tube_array_create(number_of_tubes, 100);
+    if(navigation_.tubes == NULL){
+        std::cout << "FAILED TO ALLOCATE MEM" << std::endl;
+        exit;
+    }
+    printf("MEMORY: %p and %p\n", &navigation_,  navigation_.tubes);
+    navigation_.length = max_path_length;
+    navigation_.control.velocity.angular_rate = 0;
+    navigation_.control.velocity.forward = 0;
+    fsmt_params_t params = {
+        .sampling = {
+            .spatial_step = 0.1
+        },
+        .vehicle = {
+            .width = 0.45,
+            .lenght = 0.4,
+            .distance_axle_to_front = 0.2,
+            .distance_axle_to_rear = 0.2,
+            .maximum_curvature = 5,
+
+        }
+    };
+
+    for(size_t i=0; i<number_of_tubes; i++)
+    {
+        navigation_.tubes->tube[i]->maneuver.length = max_path_length;
+        navigation_.tubes->tube[i]->maneuver.radius = radius[i];
+
+        fsmt_cartesian_tube_compute(
+            navigation_.tubes->tube[i]->cartesian, 
+            &params, 
+            &navigation_.tubes->tube[i]->maneuver);
+    }
+    navigation_.tubes->size = number_of_tubes;
+    std::cout << "outside: " << navigation_.tubes->size << std::endl;
+    tube_configured_ = false;
 }
 
 bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>& plan) {
@@ -52,6 +94,23 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     // wait for a valid lidar reading.
     if(ros_laser_scan_.ranges.empty()) return false;
+
+    if(fsmt_lidar_ == NULL) return false;
+
+    if(tube_configured_==false)
+    {
+        std::cout << "FOR-loop: " << navigation_.tubes->size << std::endl; 
+        for(size_t i=0; i<navigation_.tubes->size; i++)
+        {
+            fsmt_sensor_tube_from_cartesian_tube(
+                navigation_.tubes->tube[i]->sensor,
+                navigation_.tubes->tube[i]->cartesian,
+                fsmt_lidar_
+            );
+        }
+        tube_configured_ = true;
+    }
+
 
     // The global plan must be transformed from its current frame (e.g., map or odom frame)
     // to the robot frame (e.g., base_link).
@@ -84,33 +143,6 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // Transform from global to robot frame.
     fsmt_point_array_frame_transformation(&fsmt_transform, plan_array_, plan_array_);
 
-    size_t number_of_curvatures = 15;
-    float max_path_length = .5*1.57;
-    // float radius[number_of_curvatures] = {-3, -2, -1.5, -1, -0.75, 1000, 0.75 , 1, 1.5, 2, 3};
-    float radius[number_of_curvatures] = {1000, 5, -5, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
-    // Core Library
-    fsmt_cartesian_tube_t *tube[2*number_of_curvatures];
-    fsmt_params_t params = {
-        .sampling = {
-            .spatial_step = 0.1
-        },
-        .vehicle = {
-            .width = 0.5,
-            .lenght = 0.4,
-            .distance_axle_to_front = 0.2,
-            .distance_axle_to_rear = 0.2,
-            .maximum_curvature = 10,
-
-        }
-    };
-    fsmt_maneuver_t maneuver[2*number_of_curvatures];
-    for(size_t i=0; i<number_of_curvatures; i++){
-        maneuver[i].length = max_path_length;
-        maneuver[i].radius = radius[i];
-        maneuver[i+number_of_curvatures].length = -max_path_length;
-        maneuver[i+number_of_curvatures].radius = radius[i];
-    }
-
     // visualization
     float marker_fsmt_color[3] = {0.0,1.0,0.0};
     float marker_vehicle_at_final_time_color[3] = {0.0,0.0,1.0};
@@ -119,88 +151,27 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     visualization_msgs::Marker marker_vehicle_at_final_time;
     visualization_msgs::Marker marker_local_goal;
 
-    float path_length = 0;
-    size_t plan_local_goal_index = 0;
-    while (path_length < max_path_length && plan_local_goal_index+1 < plan_array_->size){
-        float plan_step_dx = global_plan_[plan_local_goal_index+1].pose.position.x - global_plan_[plan_local_goal_index].pose.position.x;
-        float plan_step_dy = global_plan_[plan_local_goal_index+1].pose.position.y - global_plan_[plan_local_goal_index].pose.position.y;   
-        path_length += sqrtf(plan_step_dx*plan_step_dx + plan_step_dy*plan_step_dy);
-        plan_local_goal_index += 1;
-    }
 
-    size_t number_of_beams = ros_laser_scan_.ranges.size();
-    if(fsmt_lidar_ == NULL)
-    {
-        fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
-    }
-
-    if(fsmt_lidar_->config.size.max < number_of_beams)
-    {
-        fsmt_lidar_destroy(&fsmt_lidar_);
-        fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
-    }
-    ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
-    fsmt_sensor_point_array_t *sensor = fsmt_sensor_point_array_create(100);
-
-    int des_index = -1;
-    float best_metric = 100;
-    fsmt_cartesian_point_t local_goal = {
-        .x = plan_array_->points[plan_local_goal_index].x,
-        .y = plan_array_->points[plan_local_goal_index].y};
-    for(size_t i=0; i<2*number_of_curvatures; i++)
-    {
-        // fsmt_maneuver_t maneuver = {
-        //     .radius = radius[i],
-        //     .length = max_path_length
-        // };        
-        tube[i] = fsmt_cartesian_tube_create(100) ;
-        fsmt_cartesian_tube_compute(tube[i], &params, &maneuver[i]);
-        fsmt_sensor_point_array_reset(sensor);
-        cartesian_to_sensor(tube[i]->samples, sensor, fsmt_lidar_);
-
-        int is_available = availability(sensor, fsmt_lidar_);
-        // score.
-
-
-        int distance_to_local_goal = !fsmt_distance_to_local_goal(
-            tube[i], &local_goal);
-        // int distance_to_local_goal = fsmt_distance_to_local_goal(
-        //         tube[i], &local_goal);
-        float distance_to_local_goal_continuous = 0;
-        if (distance_to_local_goal != 0){
-            distance_to_local_goal_continuous = fsmt_distance_to_rectangle(
-                tube[i], &local_goal);
-        }else{
-            distance_to_local_goal_continuous = -fsmt_distance_to_rectangle(
-                tube[i], &local_goal);           
-        }
-        std::cout << "Tube #" << i <<  ": available " << is_available << ".. distance (discrete): " << distance_to_local_goal <<
-            "distance (continuous): " << distance_to_local_goal_continuous << std::endl;
-        if (is_available == 0)
-            continue;
+    std::cout << "EVALUATION!" << std::endl;
+    int des_index = fsmt_evaluate(&navigation_, fsmt_lidar_, plan_array_, &navigation_.control);
+    std::cout << "Desired index: " << des_index << std::endl;
+    // std::cout << "Tube #" << i <<  ": available " << is_available << ".. distance (discrete): " << distance_to_local_goal <<
+    //     "distance (continuous): " << distance_to_local_goal_continuous << std::endl;
+    // if (is_available == 0)
+    //     continue;
     
-        float current_metric = distance_to_local_goal_continuous + distance_to_local_goal*10;
-        if (current_metric < best_metric ){
-            des_index = i;
-            best_metric = current_metric;
-        }
 
-        // if(i+1 == number_of_curvatures && des_index >= 0 && best_metric < 0.5){
-        //     break;
-        // }
-
-    }
     // visualization
     if(des_index >= 0){
         fsmt_point_array_to_marker(marker_fsmt, 
             "base_link",
-            tube[des_index]->samples,
+            navigation_.tubes->tube[des_index]->cartesian->samples.edge,
             marker_fsmt_color);
         fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
-            tube[des_index]->at_final_time.p1_front_right,
-            tube[des_index]->at_final_time.p2_front_left,
-            tube[des_index]->at_final_time.p3_rear_left,
-            tube[des_index]->at_final_time.p4_rear_right
+            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p1_front_right,
+            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p2_front_left,
+            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p3_rear_left,
+            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p4_rear_right
         };   
         fsmt_points_to_marker(marker_vehicle_at_final_time,
             "base_link",
@@ -210,7 +181,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         );
         fsmt_points_to_marker(marker_local_goal,
             "base_link",
-            &local_goal,
+            &navigation_.local_goal,
             1,
             marker_local_goal_color
         );
@@ -224,22 +195,18 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
     marker_local_goal_pub_.publish(marker_local_goal);
 
-    std::cout << "des_index: " << des_index << std::endl;  
     if(des_index > -1){
-        std::cout << "maneuver[des_index].radius: " <<  maneuver[des_index].radius << std::endl;  
-        cmd_vel.linear.x =  (maneuver[des_index].length/fabs(maneuver[des_index].length)) * 0.5;
-        cmd_vel.angular.z = cmd_vel.linear.x/maneuver[des_index].radius;
+        fsmt_maneuver_t *maneuver = &navigation_.tubes->tube[des_index]->maneuver;
+        std::cout << "maneuver[des_index].radius: " <<  maneuver->radius << std::endl;  
+        cmd_vel.linear.x =  0.5;
+        cmd_vel.angular.z = cmd_vel.linear.x/maneuver->radius;
     }else{
         cmd_vel.linear.x = 0;
-        cmd_vel.angular.z = 0;
+        cmd_vel.angular.z = 0;    
     }
 
-    if (des_index == -1)
-        des_index = number_of_curvatures;
-    for(size_t i=0; i<des_index; i++)
-    {
-        fsmt_cartesian_tube_destroy(&tube[i]);
-    }
+    navigation_.control.velocity.angular_rate = cmd_vel.angular.z;
+    navigation_.control.velocity.forward = cmd_vel.linear.x;
 
     return true;
 }
@@ -250,6 +217,19 @@ bool FSMTBaseLocalPlanner::isGoalReached() {
 
 void FSMTBaseLocalPlanner::lidarCallback(const sensor_msgs::LaserScan::ConstPtr& msg) {
     ros_laser_scan_ = *msg;
+
+    size_t number_of_beams = ros_laser_scan_.ranges.size();
+    if(fsmt_lidar_ == NULL)
+    {
+        fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
+    }
+
+    if(fsmt_lidar_->config.size.max < number_of_beams)
+    {
+        fsmt_lidar_destroy(&fsmt_lidar_);
+        fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
+    }
+    ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
 }
 
 void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 

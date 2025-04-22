@@ -20,7 +20,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 #include <fsmt/data_structure/lidar.h>
-#include <fsmt/data_structure/cartesian_point.h>
+#include <fsmt/navigation/navigation_with_global_wp_plan.h>
 
 int ROS2FSMTLaserScan(const sensor_msgs::LaserScan& ros_laser_scan, fsmt_lidar_t* fsmt_lidar);
 
@@ -57,6 +57,10 @@ private:
     //
     fsmt_cartesian_point_array_t *plan_array_;
     float plan_orientation_[400];
+
+    fsmt_navigation_t navigation_;
+
+    bool tube_configured_;
 };
 
 void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 
