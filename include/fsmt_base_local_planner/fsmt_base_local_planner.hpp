@@ -42,7 +42,8 @@ public:
 
 private:
     ros::Subscriber laser_scan_sub_;
-    ros::Publisher marker_fsmt_pub_;
+    ros::Publisher marker_fsmt_edge_pub_;
+    ros::Publisher marker_fsmt_whisker_pub_;
     ros::Publisher marker_vehicle_at_final_time_pub_;
     ros::Publisher marker_local_goal_pub_;
 
@@ -58,7 +59,7 @@ private:
     fsmt_cartesian_point_array_t *plan_array_;
     float plan_orientation_[400];
 
-    fsmt_navigation_t navigation_;
+    fsmt_navigation_t *navigation_;
 
     bool tube_configured_;
 };

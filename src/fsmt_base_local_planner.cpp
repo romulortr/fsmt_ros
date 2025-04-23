@@ -1,5 +1,5 @@
 #include <fsmt_base_local_planner/fsmt_base_local_planner.hpp>
-#include <fsmt/fsmt.h>
+#include <fsmt/tube.h>
 #include <pluginlib/class_list_macros.h>
 
 #include <fsmt/score.h>
@@ -22,7 +22,8 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     ros::NodeHandle nh("~/" + name);
 
     // Publisher
-    marker_fsmt_pub_ = nh.advertise<visualization_msgs::Marker>("marker_fsmt_tube", 10);
+    marker_fsmt_edge_pub_ = nh.advertise<visualization_msgs::Marker>("marker_fsmt_edge_tube", 10);
+    marker_fsmt_whisker_pub_ = nh.advertise<visualization_msgs::Marker>("marker_fsmt_whisker_tube", 10);
     marker_vehicle_at_final_time_pub_ = nh.advertise<visualization_msgs::Marker>
         ("marker_vehicle_at_final_time_pub_", 10);
     marker_local_goal_pub_ = nh.advertise<visualization_msgs::Marker>
@@ -36,25 +37,27 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     plan_array_ = fsmt_cartesian_point_array_create(100);
 
     // motion tubes
-    size_t number_of_tubes = 15;
-    float max_path_length = .5*1.57;
-    float radius[number_of_tubes] = {1000, 5, -5, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
+    size_t number_of_tubes = 19;
+    float max_path_length = 0.6*1.57;
+    float radius[number_of_tubes] = {1000, 10, -10, 5, -5, 4, -4, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
     // Core Library
-    navigation_.tubes = fsmt_tube_array_create(number_of_tubes, 100);
-    if(navigation_.tubes == NULL){
-        std::cout << "FAILED TO ALLOCATE MEM" << std::endl;
-        exit;
+    navigation_ = fsmt_navigation_create(20, 150);
+    if(navigation_ == NULL){
+        std::cout << "MEMORY ALLOCATION ERRO!" << std::endl;
     }
-    printf("MEMORY: %p and %p\n", &navigation_,  navigation_.tubes);
-    navigation_.length = max_path_length;
-    navigation_.control.velocity.angular_rate = 0;
-    navigation_.control.velocity.forward = 0;
+    printf("INITIALIZATION!\n");
+    printf("MEMORY navigation: %p\n", navigation_);
+    printf("MEMORY navigation tubes: %p\n", navigation_->tubes);
+
+    navigation_->length = max_path_length;
+    navigation_->control.velocity.angular_rate = 0;
+    navigation_->control.velocity.forward = 0;
     fsmt_params_t params = {
         .sampling = {
             .spatial_step = 0.1
         },
         .vehicle = {
-            .width = 0.45,
+            .width = 0.5,
             .lenght = 0.4,
             .distance_axle_to_front = 0.2,
             .distance_axle_to_rear = 0.2,
@@ -65,16 +68,21 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
 
     for(size_t i=0; i<number_of_tubes; i++)
     {
-        navigation_.tubes->tube[i]->maneuver.length = max_path_length;
-        navigation_.tubes->tube[i]->maneuver.radius = radius[i];
+        navigation_->tubes->tube[i]->maneuver.length = max_path_length;
+        navigation_->tubes->tube[i]->maneuver.radius = radius[i];
+
+        fsmt_polar_tube_compute(
+            &navigation_->tubes->tube[i]->polar, 
+            &navigation_->tubes->tube[i]->maneuver, 
+            &params);
 
         fsmt_cartesian_tube_compute(
-            navigation_.tubes->tube[i]->cartesian, 
+            navigation_->tubes->tube[i]->cartesian, 
             &params, 
-            &navigation_.tubes->tube[i]->maneuver);
+            &navigation_->tubes->tube[i]->maneuver);
     }
-    navigation_.tubes->size = number_of_tubes;
-    std::cout << "outside: " << navigation_.tubes->size << std::endl;
+    navigation_->tubes->size = number_of_tubes;
+    std::cout << "outside: " << navigation_->tubes->size << std::endl;
     tube_configured_ = false;
 }
 
@@ -99,12 +107,12 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     if(tube_configured_==false)
     {
-        std::cout << "FOR-loop: " << navigation_.tubes->size << std::endl; 
-        for(size_t i=0; i<navigation_.tubes->size; i++)
+        std::cout << "FOR-loop: " << navigation_->tubes->size << std::endl; 
+        for(size_t i=0; i<navigation_->tubes->size; i++)
         {
             fsmt_sensor_tube_from_cartesian_tube(
-                navigation_.tubes->tube[i]->sensor,
-                navigation_.tubes->tube[i]->cartesian,
+                navigation_->tubes->tube[i]->sensor,
+                navigation_->tubes->tube[i]->cartesian,
                 fsmt_lidar_
             );
         }
@@ -134,7 +142,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         plan_array_->points[i].y = global_plan_[i].pose.position.y;
 
         tf::Quaternion qt;
-        tf::quaternionMsgToTF(global_plan_[i].pose.orientation, qt);
+
         plan_orientation_[i] =wrap_to_pi((float) tf::getYaw(qt) + fsmt_pose.theta);
  
         *number_of_points += 1;
@@ -144,16 +152,22 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     fsmt_point_array_frame_transformation(&fsmt_transform, plan_array_, plan_array_);
 
     // visualization
-    float marker_fsmt_color[3] = {0.0,1.0,0.0};
+    float marker_fsmt_edge_color[3] = {0.0,1.0,0.0};
+    float marker_fsmt_whisker_color[3] = {0.0,0.5,1};
     float marker_vehicle_at_final_time_color[3] = {0.0,0.0,1.0};
     float marker_local_goal_color[3] = {1.0,0.0,0.5};
-    visualization_msgs::Marker marker_fsmt;
+    visualization_msgs::Marker marker_fsmt_edge;
+    visualization_msgs::Marker marker_fsmt_whisker;
     visualization_msgs::Marker marker_vehicle_at_final_time;
     visualization_msgs::Marker marker_local_goal;
 
 
     std::cout << "EVALUATION!" << std::endl;
-    int des_index = fsmt_evaluate(&navigation_, fsmt_lidar_, plan_array_, &navigation_.control);
+    // fsmt_navigation_reset(navigation_);
+
+    printf("MEMORY navigation: %p\n", navigation_);
+    printf("MEMORY navigation tubes: %p\n", navigation_->tubes);
+    int des_index = fsmt_evaluate(navigation_, fsmt_lidar_, plan_array_, plan_orientation_, &navigation_->control);
     std::cout << "Desired index: " << des_index << std::endl;
     // std::cout << "Tube #" << i <<  ": available " << is_available << ".. distance (discrete): " << distance_to_local_goal <<
     //     "distance (continuous): " << distance_to_local_goal_continuous << std::endl;
@@ -163,15 +177,23 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
 
     // visualization
     if(des_index >= 0){
-        fsmt_point_array_to_marker(marker_fsmt, 
+        fsmt_point_array_to_marker(marker_fsmt_edge, 
             "base_link",
-            navigation_.tubes->tube[des_index]->cartesian->samples.edge,
-            marker_fsmt_color);
+            navigation_->tubes->tube[des_index]->cartesian->samples.edge,
+            marker_fsmt_edge_color);
+        fsmt_point_array_to_marker(marker_fsmt_whisker, 
+            "base_link",
+            navigation_->tubes->tube[des_index]->cartesian->samples.whiskers.inner,
+            marker_fsmt_whisker_color);
+        fsmt_point_array_to_marker(marker_fsmt_whisker, 
+            "base_link",
+            navigation_->tubes->tube[des_index]->cartesian->samples.whiskers.outer,
+            marker_fsmt_whisker_color);
         fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
-            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p1_front_right,
-            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p2_front_left,
-            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p3_rear_left,
-            navigation_.tubes->tube[des_index]->cartesian->at_final_time.p4_rear_right
+            navigation_->tubes->tube[des_index]->cartesian->at_final_time.p1_front_right,
+            navigation_->tubes->tube[des_index]->cartesian->at_final_time.p2_front_left,
+            navigation_->tubes->tube[des_index]->cartesian->at_final_time.p3_rear_left,
+            navigation_->tubes->tube[des_index]->cartesian->at_final_time.p4_rear_right
         };   
         fsmt_points_to_marker(marker_vehicle_at_final_time,
             "base_link",
@@ -181,7 +203,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         );
         fsmt_points_to_marker(marker_local_goal,
             "base_link",
-            &navigation_.local_goal,
+            &navigation_->local_goal,
             1,
             marker_local_goal_color
         );
@@ -191,12 +213,13 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     // fsmt_circle_fitting_kasa(plan_array_, &circle);
 
     // Publish
-    marker_fsmt_pub_.publish(marker_fsmt);
+    marker_fsmt_edge_pub_.publish(marker_fsmt_edge);
+    marker_fsmt_whisker_pub_.publish(marker_fsmt_whisker);
     marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
     marker_local_goal_pub_.publish(marker_local_goal);
 
     if(des_index > -1){
-        fsmt_maneuver_t *maneuver = &navigation_.tubes->tube[des_index]->maneuver;
+        fsmt_maneuver_t *maneuver = &navigation_->tubes->tube[des_index]->maneuver;
         std::cout << "maneuver[des_index].radius: " <<  maneuver->radius << std::endl;  
         cmd_vel.linear.x =  0.5;
         cmd_vel.angular.z = cmd_vel.linear.x/maneuver->radius;
@@ -205,8 +228,8 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         cmd_vel.angular.z = 0;    
     }
 
-    navigation_.control.velocity.angular_rate = cmd_vel.angular.z;
-    navigation_.control.velocity.forward = cmd_vel.linear.x;
+    navigation_->control.velocity.angular_rate = cmd_vel.angular.z;
+    navigation_->control.velocity.forward = cmd_vel.linear.x;
 
     return true;
 }
@@ -228,6 +251,7 @@ void FSMTBaseLocalPlanner::lidarCallback(const sensor_msgs::LaserScan::ConstPtr&
     {
         fsmt_lidar_destroy(&fsmt_lidar_);
         fsmt_lidar_ = fsmt_lidar_create(number_of_beams);
+        std::cout << "CONFIGURING LIDAR" << std::endl;
     }
     ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
 }
@@ -337,29 +361,3 @@ bool FSMTBaseLocalPlanner::GetTransform(std::string to_frame,
     }
     return true;
 }
-
-
-
-//DESTROY
-//     fsmt_cartesian_point_array_destroy(&plan_array);
-
-    // cartesian_to_polar(&samples, &polar, fsmt_lidar_);
-    // int is_available = availability(&polar, fsmt_lidar_);
-    // ROS_INFO("Number of points in polar: %ld", polar.size);
-    // ROS_INFO("is available: %d", is_available);
-    // for (size_t i=0; i< polar.size; i++) {
-    //     size_t index = polar.ranges[i].index;
-    //     // ROS_INFO("Index %ld: range min = %f, range: %f", index, polar.ranges[i].range1, ros_laser_scan_.ranges[index]);
-    // }
-
-    // fsmt_sensor_array_t polar;
-    // polar.ranges = (fsmt_range_t*) malloc(sizeof(fsmt_range_t)*100);
-    // polar.size = 0;
-    // polar.max_size = 100;
-
-
-    // if(is_available == 1){
-    //     cmd_vel.linear.x = 0.0;
-    //     cmd_vel.angular.z = 0.0;
-    // }else{
-    // free (polar.ranges);

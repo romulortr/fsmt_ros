@@ -1,0 +1,19 @@
+{
+    "files.associations": {
+        "cartesian_point.h": "c",
+        "stddef.h": "c",
+        "utils.h": "c",
+        "transform.h": "c",
+        "sampling.h": "c",
+        "cartesian_tube.h": "c",
+        "stdbool.h": "c",
+        "array": "c",
+        "string_view": "c",
+        "score.h": "c",
+        "sensor_tube.h": "c",
+        "fsmt.h": "c",
+        "control.h": "c",
+        "stdlib.h": "c",
+        "sensor_point.h": "c"
+    }
+}
