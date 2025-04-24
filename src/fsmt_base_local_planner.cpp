@@ -34,20 +34,21 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     fsmt_lidar_ = NULL;
 
     // FSMT memory allocation.
-    plan_array_ = fsmt_cartesian_point_array_create(100);
+    plan_array_ = fsmt_cartesian_point_array_create(500);
 
     // motion tubes
-    size_t number_of_tubes = 19;
-    float max_path_length = 0.6*1.57;
-    float radius[number_of_tubes] = {1000, 10, -10, 5, -5, 4, -4, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75};
+    float max_path_length = 0.5*1.57;
+    float radius[] = {1000, 10, -10, 5, -5, 4, -4, 3, -3, 2, -2, 1.5, -1.5, 1.25, -1.25, 1, -1, 0.75, -0.75, 0.5, -0.5, 0.4, -0.4, 0.3, -0.3};
+    size_t number_of_tubes = sizeof(radius)/sizeof(float);
     // Core Library
-    navigation_ = fsmt_navigation_create(20, 150);
+    navigation_ = fsmt_navigation_create(number_of_tubes, 500);
     if(navigation_ == NULL){
         std::cout << "MEMORY ALLOCATION ERRO!" << std::endl;
     }
     printf("INITIALIZATION!\n");
     printf("MEMORY navigation: %p\n", navigation_);
     printf("MEMORY navigation tubes: %p\n", navigation_->tubes);
+    printf("number of tubes: %ld\n", number_of_tubes);
 
     navigation_->length = max_path_length;
     navigation_->control.velocity.angular_rate = 0;
@@ -65,7 +66,8 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
 
         }
     };
-
+    printf("i0 MEMORY navigation: %p\n", navigation_);
+    printf("i0 MEMORY navigation tubes: %p\n", navigation_->tubes);
     for(size_t i=0; i<number_of_tubes; i++)
     {
         navigation_->tubes->tube[i]->maneuver.length = max_path_length;
@@ -81,9 +83,13 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
             &params, 
             &navigation_->tubes->tube[i]->maneuver);
     }
+    printf("i1 MEMORY navigation: %p\n", navigation_);
+    printf("i1 MEMORY navigation tubes: %p\n", navigation_->tubes);
     navigation_->tubes->size = number_of_tubes;
     std::cout << "outside: " << navigation_->tubes->size << std::endl;
     tube_configured_ = false;
+    printf("i2 MEMORY navigation: %p\n", navigation_);
+    printf("i3 MEMORY navigation tubes: %p\n", navigation_->tubes);
 }
 
 bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>& plan) {
@@ -93,17 +99,42 @@ bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>
     }
     global_plan_ = plan;
 
-    return true;
+    printf("-------------------------> plan.size() (global): %ld\n", plan.size());
+    printf("------------------------->  global_plan_.size() (global): %ld\n", global_plan_.size());
+
+    // {
+    //     for (size_t i=0; i<plan.size(); i++ )
+    //     {
+    //         printf("%ld: %f %f\n", i, plan[i].pose.position.x, plan[i].pose.position.y);
+    //     return true;
+    //     }
+    // }
+
 }
 
 bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel) {
+    printf("1 MEMORY navigation: %p\n", navigation_);
+    printf("1 MEMORY navigation tubes: %p\n", navigation_->tubes);
     // wait for a global plan.
-    if (global_plan_.empty()) return false;
-
+    if (global_plan_.empty()){
+        std::cout << "GLOBAL PLAN IS EMPTY" << std::endl;
+        return false;
+    } 
+    if(global_plan_.size() > 1000){
+        printf("HERE!\n");
+    }
+    printf("1.1 MEMORY navigation: %p\n", navigation_);
+    printf("1.1 MEMORY navigation tubes: %p\n", navigation_->tubes);
     // wait for a valid lidar reading.
     if(ros_laser_scan_.ranges.empty()) return false;
+    printf("1.2 MEMORY navigation: %p\n", navigation_);
+    printf("1.2 MEMORY navigation tubes: %p\n", navigation_->tubes);
 
     if(fsmt_lidar_ == NULL) return false;
+    printf("1.3 MEMORY navigation: %p\n", navigation_);
+    printf("1.3 MEMORY navigation tubes: %p\n", navigation_->tubes);
+
+
 
     if(tube_configured_==false)
     {
@@ -118,7 +149,8 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         }
         tube_configured_ = true;
     }
-
+    printf("2 MEMORY navigation: %p\n", navigation_);
+    printf("2 MEMORY navigation tubes: %p\n", navigation_->tubes);
 
     // The global plan must be transformed from its current frame (e.g., map or odom frame)
     // to the robot frame (e.g., base_link).
@@ -133,23 +165,32 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     fsmt_pose_t fsmt_pose;
     tf_transform_to_fsmt_pose(tf_transform, &fsmt_pose);
 
+    printf("3 MEMORY navigation: %p\n", navigation_);
+    printf("3 MEMORY navigation tubes: %p\n", navigation_->tubes);
+
     // Transform to fsmt data structure
     size_t *number_of_points = &plan_array_->size;
     *number_of_points = 0;
+    printf("-------------------------> size (global): %ld\n", global_plan_.size());
     for (size_t i=0; i<global_plan_.size(); i++ )
     {
-        plan_array_->points[i].x = global_plan_[i].pose.position.x;
-        plan_array_->points[i].y = global_plan_[i].pose.position.y;
+        // printf("3 i: %ld, size (global): %ld, MEMORY navigation: %p\n", i, global_plan_.size(), navigation_);
+        plan_array_->points[*number_of_points].x = global_plan_[i].pose.position.x;
+        plan_array_->points[*number_of_points].y = global_plan_[i].pose.position.y;
 
         tf::Quaternion qt;
 
-        plan_orientation_[i] =wrap_to_pi((float) tf::getYaw(qt) + fsmt_pose.theta);
+        // plan_orientation_[i] =wrap_to_pi((float) tf::getYaw(qt) + fsmt_pose.theta);
  
         *number_of_points += 1;
     }
-
+    printf("4 MEMORY navigation: %p\n", navigation_);
+    printf("4 MEMORY navigation tubes: %p\n", navigation_->tubes);
     // Transform from global to robot frame.
     fsmt_point_array_frame_transformation(&fsmt_transform, plan_array_, plan_array_);
+
+    printf("5 MEMORY navigation: %p\n", navigation_);
+    printf("5 MEMORY navigation tubes: %p\n", navigation_->tubes);
 
     // visualization
     float marker_fsmt_edge_color[3] = {0.0,1.0,0.0};
@@ -161,6 +202,9 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     visualization_msgs::Marker marker_vehicle_at_final_time;
     visualization_msgs::Marker marker_local_goal;
 
+
+    printf("6 MEMORY navigation: %p\n", navigation_);
+    printf("6 MEMORY navigation tubes: %p\n", navigation_->tubes);
 
     std::cout << "EVALUATION!" << std::endl;
     // fsmt_navigation_reset(navigation_);
@@ -221,7 +265,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     if(des_index > -1){
         fsmt_maneuver_t *maneuver = &navigation_->tubes->tube[des_index]->maneuver;
         std::cout << "maneuver[des_index].radius: " <<  maneuver->radius << std::endl;  
-        cmd_vel.linear.x =  0.5;
+        cmd_vel.linear.x =  1;
         cmd_vel.angular.z = cmd_vel.linear.x/maneuver->radius;
     }else{
         cmd_vel.linear.x = 0;
