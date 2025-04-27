@@ -55,13 +55,12 @@ private:
     fsmt_lidar_t *fsmt_lidar_;
     tf::TransformListener tf_listener_;
 
-    //
     fsmt_cartesian_point_array_t *plan_array_;
-    float plan_orientation_[400];
 
     fsmt_navigation_t *navigation_;
 
     bool tube_configured_;
+    int recovery_mode_;
 };
 
 void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 
