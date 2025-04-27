@@ -9,6 +9,7 @@
 #include <fsmt_base_local_planner/utils.hpp>
 
 float nominal_speed = 0.5;
+float max_forward_speed=1;
 PLUGINLIB_EXPORT_CLASS(FSMTBaseLocalPlanner, nav_core::BaseLocalPlanner)
 
 FSMTBaseLocalPlanner::FSMTBaseLocalPlanner() : initialized_(false) {}
@@ -36,14 +37,9 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     // FSMT memory allocation.
     plan_array_ = fsmt_cartesian_point_array_create(1000);
 
-    float length = 1.0;
-    float angle_step_in_deg = 2.5;
-    float final_angle_in_deg = 90;
-    size_t number_of_tubes = 2*(final_angle_in_deg/angle_step_in_deg+1);
-
     // motion tubes
-    float max_path_length = 1.;
-    float angle_step_in_deg = 2;
+    float max_path_length = 1.0;
+    float angle_step_in_deg = 0.5;
     float final_angle_in_deg = 90;
     size_t number_of_tubes = 2*(final_angle_in_deg/angle_step_in_deg+1);
 
@@ -51,8 +47,8 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     float radius[number_of_tubes];
     for(size_t i=0; i<number_of_tubes/2; i++){
         float angle = i*angle_step_in_deg*(3.1415/180);
-        if(fabs(angle) < 0.0001)
-            angle = 0.0001;
+        if(fabs(angle) < 0.001)
+            angle = 0.001;
         radius[2*i] = max_path_length/angle;
         radius[2*i+1] = -max_path_length/angle;
     }
@@ -71,7 +67,7 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
             .spatial_step = 0.1
         },
         .vehicle = {
-            .width = 0.5,
+            .width = 0.42,
             .length = 0.4,
             .distance_axle_to_front = 0.2,
             .distance_axle_to_rear = 0.2,
@@ -125,6 +121,7 @@ bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>
 }
 
 bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel) {
+    printf("start!\n");
     // wait for a global plan.
     if (global_plan_.empty()){
         std::cout << "empty plan" << std::endl;
@@ -232,13 +229,14 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     if(des_index >= 0){
         int signal = is_forward? 1 : -1;
         if (signal > 0){
-            nominal_speed = nominal_speed > 0.5? nominal_speed : 0.5;
-            nominal_speed = nominal_speed > 1.0? nominal_speed : nominal_speed + 0.025;
+            nominal_speed = nominal_speed > 0.01? nominal_speed : 0.01;
+            nominal_speed = nominal_speed > max_forward_speed? nominal_speed : nominal_speed + 0.025;
         }
         else
         {
+            max_forward_speed = 2;
             nominal_speed = nominal_speed > 0? -0.01 : nominal_speed;
-            nominal_speed = nominal_speed < -1? nominal_speed : nominal_speed - 0.025;
+            nominal_speed = nominal_speed < -1.25? nominal_speed : nominal_speed - 0.025;
         }
         fsmt_maneuver_t *maneuver = &navigation_->tubes->tube[des_index]->maneuver;
         cmd_vel.linear.x = nominal_speed;
@@ -248,7 +246,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         nominal_speed = 0;
         printf("rotatign\n");
         cmd_vel.linear.x = 0.0;
-        cmd_vel.angular.z = 1;    
+        cmd_vel.angular.z = 2;    
     }else{
         printf("stand still\n");
         cmd_vel.linear.x = 0.0;
@@ -257,7 +255,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     printf("after\n");
     navigation_->control.velocity.angular_rate = cmd_vel.angular.z;
     navigation_->control.velocity.forward = cmd_vel.linear.x;
-
+    printf("done!\n");
     return true;
 }
 
