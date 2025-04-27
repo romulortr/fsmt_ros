@@ -36,6 +36,11 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     // FSMT memory allocation.
     plan_array_ = fsmt_cartesian_point_array_create(1000);
 
+    float length = 1.0;
+    float angle_step_in_deg = 2.5;
+    float final_angle_in_deg = 90;
+    size_t number_of_tubes = 2*(final_angle_in_deg/angle_step_in_deg+1);
+
     // motion tubes
     float max_path_length = 1.;
     float angle_step_in_deg = 2;
