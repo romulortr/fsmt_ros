@@ -95,6 +95,7 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     {
         navigation_->recovery.backward->tube[i]->maneuver.length = -max_path_length;
         navigation_->recovery.backward->tube[i]->maneuver.radius = radius[i];
+        params.vehicle.width = 0.55;
         fsmt_polar_tube_compute(
             &navigation_->recovery.backward->tube[i]->polar, 
             &navigation_->recovery.backward->tube[i]->maneuver, 
