@@ -9,7 +9,7 @@
 #include <fsmt_base_local_planner/utils.hpp>
 
 float nominal_speed = 0.5;
-float max_forward_speed=1;
+float max_forward_speed=1.25;
 PLUGINLIB_EXPORT_CLASS(FSMTBaseLocalPlanner, nav_core::BaseLocalPlanner)
 
 FSMTBaseLocalPlanner::FSMTBaseLocalPlanner() : initialized_(false) {}
@@ -39,7 +39,7 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     plan_array_ = fsmt_cartesian_point_array_create(1000);
 
     // motion tubes
-    float max_path_length = 1;
+    float max_path_length = 1.;
     float angle_step_in_deg = 1;
     float final_angle_in_deg = 90;
     size_t number_of_tubes = 2*(final_angle_in_deg/angle_step_in_deg+1);
@@ -178,7 +178,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     visualization_msgs::Marker marker_local_goal;
 
     if(des_index >= 0){
-        fsmt_cartesian_tube_t *cartesian_tube = is_forward? navigation_->tubes->tube[des_index]->cartesian:
+        fsmt_cartesian_tube_t *cartesian_tube = !(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD)? navigation_->tubes->tube[des_index]->cartesian:
         navigation_->recovery.backward->tube[des_index]->cartesian ;
         
         fsmt_point_array_to_marker(marker_fsmt_edge, 
