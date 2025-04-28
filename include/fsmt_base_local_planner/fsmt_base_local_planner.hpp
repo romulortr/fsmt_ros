@@ -9,6 +9,7 @@
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TransformStamped.h>
+#include <nav_msgs/Odometry.h>
 #include <sensor_msgs/LaserScan.h>
 #include <visualization_msgs/Marker.h>
 
@@ -33,6 +34,7 @@ public:
     bool isGoalReached() override;
 
     void lidarCallback(const sensor_msgs::LaserScan::ConstPtr& msg);
+    void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
     void fsmt_point_array_to_marker(visualization_msgs::Marker &marker, 
         std::string frame_id, fsmt_cartesian_point_array_t *fsmt_array,
         float color[3]);
@@ -42,6 +44,7 @@ public:
 
 private:
     ros::Subscriber laser_scan_sub_;
+    ros::Subscriber odom_sub_;
     ros::Publisher marker_fsmt_edge_pub_;
     ros::Publisher marker_fsmt_whisker_pub_;
     ros::Publisher marker_vehicle_at_final_time_pub_;
@@ -58,7 +61,7 @@ private:
     fsmt_cartesian_point_array_t *plan_array_;
 
     fsmt_navigation_t *navigation_;
-
+    fsmt_control_t current_velocity_;
     bool tube_configured_;
     int recovery_mode_;
 };

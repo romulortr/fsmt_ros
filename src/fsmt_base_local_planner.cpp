@@ -32,14 +32,15 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
 
     // Subscribe to LiDAR scan topic
     laser_scan_sub_ = nh.subscribe("/front/scan", 1, &FSMTBaseLocalPlanner::lidarCallback, this);
+    odom_sub_ = nh.subscribe("/odometry/filtered", 1, &FSMTBaseLocalPlanner::odomCallback, this);
     fsmt_lidar_ = NULL;
 
     // FSMT memory allocation.
     plan_array_ = fsmt_cartesian_point_array_create(1000);
 
     // motion tubes
-    float max_path_length = 1.0;
-    float angle_step_in_deg = 0.5;
+    float max_path_length = 1;
+    float angle_step_in_deg = 1;
     float final_angle_in_deg = 90;
     size_t number_of_tubes = 2*(final_angle_in_deg/angle_step_in_deg+1);
 
@@ -64,10 +65,10 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     navigation_->control.velocity.forward = 0;
     fsmt_params_t params = {
         .sampling = {
-            .spatial_step = 0.1
+            .spatial_step = 0.05
         },
         .vehicle = {
-            .width = 0.42,
+            .width = 0.45,
             .length = 0.4,
             .distance_axle_to_front = 0.2,
             .distance_axle_to_rear = 0.2,
@@ -105,7 +106,8 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     }
     navigation_->tubes->size = number_of_tubes;
     navigation_->recovery.backward->size = number_of_tubes;
-
+    current_velocity_.velocity.forward = 0;
+    current_velocity_.velocity.angular_rate = 0;
     tube_configured_ = false;
     recovery_mode_ = false;
 
@@ -162,7 +164,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     
     // Evaluate motion tubes.
     bool is_forward;
-    int des_index = fsmt_evaluate(navigation_, fsmt_lidar_, plan_array_, NULL, &navigation_->control, &is_forward);
+    int des_index = fsmt_evaluate(navigation_, fsmt_lidar_, plan_array_, NULL, &current_velocity_, &is_forward);
     
     printf("middle\n");
     // visualization
@@ -226,35 +228,9 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
     marker_local_goal_pub_.publish(marker_local_goal);
 
-    if(des_index >= 0){
-        int signal = is_forward? 1 : -1;
-        if (signal > 0){
-            nominal_speed = nominal_speed > 0.01? nominal_speed : 0.01;
-            nominal_speed = nominal_speed > max_forward_speed? nominal_speed : nominal_speed + 0.025;
-        }
-        else
-        {
-            max_forward_speed = 2;
-            nominal_speed = nominal_speed > 0? -0.01 : nominal_speed;
-            nominal_speed = nominal_speed < -1.25? nominal_speed : nominal_speed - 0.025;
-        }
-        fsmt_maneuver_t *maneuver = &navigation_->tubes->tube[des_index]->maneuver;
-        cmd_vel.linear.x = nominal_speed;
-        cmd_vel.angular.z = cmd_vel.linear.x/maneuver->radius;
-        printf("radius: %f\n", maneuver->radius);
-    }else if (des_index==-2){
-        nominal_speed = 0;
-        printf("rotatign\n");
-        cmd_vel.linear.x = 0.0;
-        cmd_vel.angular.z = 2;    
-    }else{
-        printf("stand still\n");
-        cmd_vel.linear.x = 0.0;
-        cmd_vel.angular.z = 0.0;    
-    }
     printf("after\n");
-    navigation_->control.velocity.angular_rate = cmd_vel.angular.z;
-    navigation_->control.velocity.forward = cmd_vel.linear.x;
+    cmd_vel.linear.x = navigation_->control.velocity.forward;
+    cmd_vel.angular.z = navigation_->control.velocity.angular_rate;
     printf("done!\n");
     return true;
 }
@@ -302,6 +278,11 @@ void FSMTBaseLocalPlanner::lidarCallback(const sensor_msgs::LaserScan::ConstPtr&
         fsmt_configure(navigation_, fsmt_lidar_);
         tube_configured_ = true;
     }
+}
+
+void FSMTBaseLocalPlanner::odomCallback(const nav_msgs::Odometry::ConstPtr& msg){
+    current_velocity_.velocity.forward = msg->twist.twist.linear.x;
+    current_velocity_.velocity.angular_rate = msg->twist.twist.angular.z;
 }
 
 void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 
