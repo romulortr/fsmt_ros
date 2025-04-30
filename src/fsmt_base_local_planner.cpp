@@ -8,8 +8,6 @@
 #include <fsmt/cartesian_tube.h>
 #include <fsmt_base_local_planner/utils.hpp>
 
-float nominal_speed = 0.5;
-float max_forward_speed=1.25;
 PLUGINLIB_EXPORT_CLASS(FSMTBaseLocalPlanner, nav_core::BaseLocalPlanner)
 
 FSMTBaseLocalPlanner::FSMTBaseLocalPlanner() : initialized_(false) {}
@@ -40,7 +38,7 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
 
     // motion tubes
     float max_path_length = 1.;
-    float angle_step_in_deg = 1;
+    float angle_step_in_deg = 0.25;
     float final_angle_in_deg = 90;
     size_t number_of_tubes = 2*(final_angle_in_deg/angle_step_in_deg+1);
 
@@ -63,54 +61,13 @@ void FSMTBaseLocalPlanner::initialize(std::string name, tf2_ros::Buffer* tf, cos
     navigation_->length = max_path_length;
     navigation_->control.velocity.angular_rate = 0;
     navigation_->control.velocity.forward = 0;
-    fsmt_params_t params = {
-        .sampling = {
-            .spatial_step = 0.05
-        },
-        .vehicle = {
-            .width = 0.45,
-            .length = 0.4,
-            .distance_axle_to_front = 0.2,
-            .distance_axle_to_rear = 0.2,
-            .maximum_curvature = 5,
 
-        }
-    };
-
-    for(size_t i=0; i<number_of_tubes; i++)
-    {
-        navigation_->tubes->tube[i]->maneuver.length = max_path_length;
-        navigation_->tubes->tube[i]->maneuver.radius = radius[i];
-        fsmt_polar_tube_compute(
-            &navigation_->tubes->tube[i]->polar, 
-            &navigation_->tubes->tube[i]->maneuver, 
-            &params);
-        fsmt_cartesian_tube_compute(
-            navigation_->tubes->tube[i]->cartesian, 
-            &params, 
-            &navigation_->tubes->tube[i]->maneuver);
-    }
-
-    for(size_t i=0; i<number_of_tubes; i++)
-    {
-        navigation_->recovery.backward->tube[i]->maneuver.length = -max_path_length;
-        navigation_->recovery.backward->tube[i]->maneuver.radius = radius[i];
-        params.vehicle.width = 0.55;
-        fsmt_polar_tube_compute(
-            &navigation_->recovery.backward->tube[i]->polar, 
-            &navigation_->recovery.backward->tube[i]->maneuver, 
-            &params);
-        fsmt_cartesian_tube_compute(
-            navigation_->recovery.backward->tube[i]->cartesian, 
-            &params, 
-            &navigation_->recovery.backward->tube[i]->maneuver);
-    }
-    navigation_->tubes->size = number_of_tubes;
     navigation_->recovery.backward->size = number_of_tubes;
     current_velocity_.velocity.forward = 0;
     current_velocity_.velocity.angular_rate = 0;
     tube_configured_ = false;
     recovery_mode_ = false;
+    printf("FINISHED CREATION!\n");
 
 }
 
@@ -124,7 +81,6 @@ bool FSMTBaseLocalPlanner::setPlan(const std::vector<geometry_msgs::PoseStamped>
 }
 
 bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel) {
-    printf("start!\n");
     // wait for a global plan.
     if (global_plan_.empty()){
         std::cout << "empty plan" << std::endl;
@@ -178,14 +134,20 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     visualization_msgs::Marker marker_vehicle_at_final_time;
     visualization_msgs::Marker marker_local_goal;
 
-    if(des_index >= 0){
-        fsmt_cartesian_tube_t *cartesian_tube = !(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD)? navigation_->tubes->tube[des_index]->cartesian:
-        navigation_->recovery.backward->tube[des_index]->cartesian ;
-        
+    if(des_index >= 0 && (navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD ||
+        navigation_->state == FSMT_STATE_NORMAL)){
+
+
+        fsmt_cartesian_tube_t *cartesian_tube = !(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD)? 
+            navigation_->tubes[navigation_->hindex]->tube[des_index]->cartesian:
+            navigation_->recovery.backward->tube[des_index]->cartesian ;
+     
+
         fsmt_point_array_to_marker(marker_fsmt_edge, 
             "base_link",
             cartesian_tube->samples.edge,
             marker_fsmt_edge_color);
+
         fsmt_point_array_to_marker(marker_fsmt_whisker, 
             "base_link",
             cartesian_tube->samples.whiskers.inner,
@@ -210,29 +172,39 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
             4,
             marker_vehicle_at_final_time_color
         );
-        fsmt_points_to_marker(marker_local_goal,
-            "base_link",
-            &navigation_->local_goal,
-            1,
-            marker_local_goal_color
-        );
+        if(!(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD))
+        {
+            fsmt_points_to_marker(marker_local_goal,
+                "base_link",
+                &navigation_->tubes[navigation_->hindex]->local_goal,
+                1,
+                marker_local_goal_color
+            );
+        }else{
+            fsmt_points_to_marker(marker_local_goal,
+                "base_link",
+                &navigation_->recovery.backward->local_goal,
+                1,
+                marker_local_goal_color
+            );
+        }
+
     }else if (des_index==-2){
         fsmt_point_array_to_marker(marker_fsmt_edge, 
             "base_link",
             navigation_->recovery.rotate.cartesian,
             marker_fsmt_edge_color);
     }
-    
+
+
     // Publish
     marker_fsmt_edge_pub_.publish(marker_fsmt_edge);
     marker_fsmt_whisker_pub_.publish(marker_fsmt_whisker);
     marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
     marker_local_goal_pub_.publish(marker_local_goal);
 
-    printf("after\n");
     cmd_vel.linear.x = navigation_->control.velocity.forward;
     cmd_vel.angular.z = navigation_->control.velocity.angular_rate;
-    printf("done!\n");
     return true;
 }
 
@@ -261,22 +233,21 @@ void FSMTBaseLocalPlanner::lidarCallback(const sensor_msgs::LaserScan::ConstPtr&
     ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
 
     // Configure motion tube (only once).
+    fsmt_params_t params;
+    params.sampling.sampling_step.edge = 0.1;
+    params.sampling.sampling_step.whiskers = 0.1;
+    params.sampling.whiskers_distance.front = 0.2;
+    params.sampling.whiskers_distance.side = 0.1;
+    params.vehicle.width = 0.45;
+    params.vehicle.length = 0.4;
+    params.vehicle.distance_axle_to_front = 0.2;
+    params.vehicle.distance_axle_to_rear = 0.2;
+    params.vehicle.maximum_curvature = 5;
+
+
     if(tube_configured_==false)
     {
-        for(size_t i=0; i<navigation_->tubes->size; i++)
-        {
-            fsmt_sensor_tube_from_cartesian_tube(
-                navigation_->tubes->tube[i]->sensor,
-                navigation_->tubes->tube[i]->cartesian,
-                fsmt_lidar_
-            );
-            fsmt_sensor_tube_from_cartesian_tube(
-                navigation_->recovery.backward->tube[i]->sensor,
-                navigation_->recovery.backward->tube[i]->cartesian,
-                fsmt_lidar_
-            );
-        }
-        fsmt_configure(navigation_, fsmt_lidar_);
+        fsmt_navigation_configure(navigation_, &params, fsmt_lidar_);
         tube_configured_ = true;
     }
 }
