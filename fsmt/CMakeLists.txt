@@ -33,8 +33,9 @@ target_include_directories(${PROJECT_NAME}
         $<BUILD_INTERFACE:${${PROJECT_NAME}_SOURCE_DIR}/include>
 )
 
-# target_link_libraries(${PROJECT_NAME} 
-# PUBLIC
-#     ${LAPACK_LIBRARIES}
-#     lapacke
-# )
+target_link_libraries(${PROJECT_NAME} 
+PUBLIC
+    m
+    # ${LAPACK_LIBRARIES}
+    # lapacke
+)
