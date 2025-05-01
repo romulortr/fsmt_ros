@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "navigation_with_global_wp_plan.h": "c",
+        "utils.h": "c",
+        "score.h": "c",
+        "math.h": "c",
+        "lapacke.h": "c"
+    }
+}

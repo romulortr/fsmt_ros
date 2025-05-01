@@ -1,0 +1,23 @@
+Multiplos horizontes
+Acelerar/desacelerar
+considerar a velocidade atual para calcular angular rate
+Maquina de estado para manobra de recuperacao
+
+
+The vehicle is moving forward. At some point it gets stucked and cannot move forward anymore. We will start the recovery maneuver.
+
+-> NORMAL:
+Vehicle moves forward
+No forward tube is available: NORMAL -> STOP_TO_RECOVER
+-> STOP_TO_RECOVER:
+Stop the vehicle.
+vehicle has stopped -> START_RECOVER
+-> START_RECOVER:
+1. Is there enough space to rotate in place -> RECOVERY_ROTATE
+2. else: RECOVERY_MOVE_BACKWARD
+-> RECOVERY_ROTATE 
+Rotate in place in the direction closest to goal.
+1. Not enough space or has reached goal orientation? NORMAL
+ 
+RECOVERY_MOVE_BACKWARD
+

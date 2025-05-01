@@ -123,7 +123,6 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     bool is_forward;
     int des_index = fsmt_evaluate(navigation_, fsmt_lidar_, plan_array_, NULL, &current_velocity_, &is_forward);
     
-    printf("middle\n");
     // visualization
     float marker_fsmt_edge_color[3] = {0.0,1.0,0.0};
     float marker_fsmt_whisker_color[3] = {0.0,0.5,1};
