@@ -21,11 +21,11 @@ float glength_of_tube[] = { 0.9, 1.5/.75, 1., 1., 1.};
 float gspeed[] = {0.75, 0.75, 0.75, 0.75, 0.75};
 float gwhiskers[] = {0.1,0.1, 0.1, 0.1, 0.1};
 int gresult = 100;
-int isouter;
-int isfront;
+
 float ggsignal;
 float grotation;
 float gntubesavailable = 0;
+
 fsmt_navigation_t* fsmt_navigation_create(size_t number_of_tubes, size_t number_of_samples)
 {
     fsmt_navigation_t *navigation = (fsmt_navigation_t*) malloc(
@@ -314,8 +314,6 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
         best.distance_to_orientation = distance_to_orientation;
         best.change_in_actuation = change_in_actuation;
         gresult = best.distance_to_goal;
-        isouter = best.is_outer_whisker_available;
-        isfront = best.is_front_whisker_available;
     }
     gntubesavailable = gntubesavailable/number_of_tubes;
     return best.index;
