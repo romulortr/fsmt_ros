@@ -1,0 +1,27 @@
+# Executables and object files
+*.o
+*.a
+*.exe
+
+# Libraries
+*.so
+*.dylib
+
+# Core dumps
+core.*
+
+# Build artifacts
+build/
+bin/
+out/
+cmake-build-*/
+
+# Debug files
+*.d
+*.gch
+
+# Temporary files created by text editors
+*~
+*.swp
+.vscode/
+
