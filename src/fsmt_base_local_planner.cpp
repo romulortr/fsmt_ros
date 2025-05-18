@@ -120,9 +120,18 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     fsmt_point_array_frame_transformation(&fsmt_transform, plan_array_, plan_array_);
     
     // Evaluate motion tubes.
-    bool is_forward;
-    int des_index = fsmt_evaluate(navigation_, fsmt_lidar_, plan_array_, NULL, &current_velocity_, &is_forward);
-    
+    int des_index = fsmt_evaluate(navigation_, fsmt_lidar_, plan_array_, NULL, &current_velocity_);
+    if(des_index >= 0)
+    {
+        printf("HER!\n");
+        fsmt_maneuver_t *maneuver = &navigation_->solution.tube->maneuver;
+        cmd_vel.linear.x = 0.5;
+        cmd_vel.angular.z =  cmd_vel.linear.x / maneuver->radius;
+    }else
+    {
+        cmd_vel.linear.x = 0;
+        cmd_vel.angular.z = 0;
+    }
     // visualization
     float marker_fsmt_edge_color[3] = {0.0,1.0,0.0};
     float marker_fsmt_whisker_color[3] = {0.0,0.5,1};
@@ -133,77 +142,77 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
     visualization_msgs::Marker marker_vehicle_at_final_time;
     visualization_msgs::Marker marker_local_goal;
 
-    if(des_index >= 0 && (navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD ||
-        navigation_->state == FSMT_STATE_NORMAL)){
+    // if(des_index >= 0 && (navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD ||
+    //     navigation_->state == FSMT_STATE_NORMAL)){
 
 
-        fsmt_cartesian_tube_t *cartesian_tube = !(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD)? 
-            navigation_->tubes[navigation_->hindex]->tube[des_index]->cartesian:
-            navigation_->recovery.backward->tube[des_index]->cartesian ;
+    //     fsmt_cartesian_tube_t *cartesian_tube = !(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD)? 
+    //         navigation_->tubes[navigation_->solution.index.horizon]->tube[des_index]->cartesian:
+    //         navigation_->recovery.backward->tube[des_index]->cartesian ;
      
 
-        fsmt_point_array_to_marker(marker_fsmt_edge, 
-            "base_link",
-            cartesian_tube->samples.edge,
-            marker_fsmt_edge_color);
+    //     fsmt_point_array_to_marker(marker_fsmt_edge, 
+    //         "base_link",
+    //         cartesian_tube->samples.edge,
+    //         marker_fsmt_edge_color);
 
-        fsmt_point_array_to_marker(marker_fsmt_whisker, 
-            "base_link",
-            cartesian_tube->samples.whiskers.inner,
-            marker_fsmt_whisker_color);
-        fsmt_point_array_to_marker(marker_fsmt_whisker, 
-            "base_link",
-            cartesian_tube->samples.whiskers.outer,
-            marker_fsmt_whisker_color);
-        fsmt_point_array_to_marker(marker_fsmt_whisker, 
-            "base_link",
-            cartesian_tube->samples.whiskers.front,
-            marker_fsmt_whisker_color);
-        fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
-            cartesian_tube->at_final_time.p1_front_right,
-            cartesian_tube->at_final_time.p2_front_left,
-            cartesian_tube->at_final_time.p3_rear_left,
-            cartesian_tube->at_final_time.p4_rear_right
-        };   
-        fsmt_points_to_marker(marker_vehicle_at_final_time,
-            "base_link",
-            vehicle_edge_at_final_time,
-            4,
-            marker_vehicle_at_final_time_color
-        );
-        if(!(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD))
-        {
-            fsmt_points_to_marker(marker_local_goal,
-                "base_link",
-                &navigation_->tubes[navigation_->hindex]->local_goal,
-                1,
-                marker_local_goal_color
-            );
-        }else{
-            fsmt_points_to_marker(marker_local_goal,
-                "base_link",
-                &navigation_->recovery.backward->local_goal,
-                1,
-                marker_local_goal_color
-            );
-        }
+    //     fsmt_point_array_to_marker(marker_fsmt_whisker, 
+    //         "base_link",
+    //         cartesian_tube->samples.whiskers.inner,
+    //         marker_fsmt_whisker_color);
+    //     fsmt_point_array_to_marker(marker_fsmt_whisker, 
+    //         "base_link",
+    //         cartesian_tube->samples.whiskers.outer,
+    //         marker_fsmt_whisker_color);
+    //     fsmt_point_array_to_marker(marker_fsmt_whisker, 
+    //         "base_link",
+    //         cartesian_tube->samples.whiskers.front,
+    //         marker_fsmt_whisker_color);
+    //     fsmt_cartesian_point_t vehicle_edge_at_final_time[4] = {
+    //         cartesian_tube->at_final_time.p1_front_right,
+    //         cartesian_tube->at_final_time.p2_front_left,
+    //         cartesian_tube->at_final_time.p3_rear_left,
+    //         cartesian_tube->at_final_time.p4_rear_right
+    //     };   
+    //     fsmt_points_to_marker(marker_vehicle_at_final_time,
+    //         "base_link",
+    //         vehicle_edge_at_final_time,
+    //         4,
+    //         marker_vehicle_at_final_time_color
+    //     );
+    //     if(!(navigation_->state==FSMT_STATE_RECOVERY_MOVE_BACKWARD))
+    //     {
+    //         fsmt_points_to_marker(marker_local_goal,
+    //             "base_link",
+    //             &navigation_->tubes[navigation_->solution.index.horizon]->local_goal,
+    //             1,
+    //             marker_local_goal_color
+    //         );
+    //     }else{
+    //         fsmt_points_to_marker(marker_local_goal,
+    //             "base_link",
+    //             &navigation_->recovery.backward->local_goal,
+    //             1,
+    //             marker_local_goal_color
+    //         );
+    //     }
 
-    }else if (des_index==-2){
-        fsmt_point_array_to_marker(marker_fsmt_edge, 
-            "base_link",
-            navigation_->recovery.rotate.cartesian,
-            marker_fsmt_edge_color);
-    }
+    // }else if (des_index==-2){
+    //     fsmt_point_array_to_marker(marker_fsmt_edge, 
+    //         "base_link",
+    //         navigation_->recovery.rotate.cartesian,
+    //         marker_fsmt_edge_color);
+    // }
 
 
-    // Publish
-    marker_fsmt_edge_pub_.publish(marker_fsmt_edge);
-    marker_fsmt_whisker_pub_.publish(marker_fsmt_whisker);
-    marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
-    marker_local_goal_pub_.publish(marker_local_goal);
+    // // Publish
+    // marker_fsmt_edge_pub_.publish(marker_fsmt_edge);
+    // marker_fsmt_whisker_pub_.publish(marker_fsmt_whisker);
+    // marker_vehicle_at_final_time_pub_.publish(marker_vehicle_at_final_time);
+    // marker_local_goal_pub_.publish(marker_local_goal);
 
-    cmd_vel.linear.x = navigation_->control.velocity.forward;
-    cmd_vel.angular.z = navigation_->control.velocity.angular_rate;
+    // cmd_vel.linear.x = navigation_->control.velocity.forward;
+    // cmd_vel.angular.z = navigation_->control.velocity.angular_rate;
     return true;
 }
 
@@ -232,12 +241,13 @@ void FSMTBaseLocalPlanner::lidarCallback(const sensor_msgs::LaserScan::ConstPtr&
     ROS2FSMTLaserScan(ros_laser_scan_, fsmt_lidar_);
 
     // Configure motion tube (only once).
+    // @TODO: this has to move to a configuration file
     fsmt_params_t params;
     params.sampling.sampling_step.edge = 0.1;
     params.sampling.sampling_step.whiskers = 0.1;
-    params.sampling.whiskers_distance.front = 0.2;
+    params.sampling.whiskers_distance.front = 0.05;
     params.sampling.whiskers_distance.side = 0.1;
-    params.vehicle.width = 0.45;
+    params.vehicle.width = 0.5;
     params.vehicle.length = 0.4;
     params.vehicle.distance_axle_to_front = 0.2;
     params.vehicle.distance_axle_to_rear = 0.2;
