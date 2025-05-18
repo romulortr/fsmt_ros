@@ -32,7 +32,10 @@
 #define FSMT_STATE_STOP_TO_NORMAL 6
 
 typedef struct fsmt_navigation_s{
+    // 
     fsmt_tube_array_t *tubes[5];
+    fsmt_tube_array_t *nominal_horizon;
+    fsmt_tube_array_t *long_horizon;
     struct{
         fsmt_tube_array_t *backward;    
         struct{
@@ -44,7 +47,20 @@ typedef struct fsmt_navigation_s{
     fsmt_control_t control;
     fsmt_cartesian_point_t local_goal;
     int state;
-    int hindex;
+    
+
+    struct{
+        // Stores arrays' indices to speed up access.
+        struct{
+            int horizon;
+            int tube;
+        }index;
+        // Pointer to selected tube.
+        fsmt_tube_t *tube;
+        int number_of_feasible_tubes;   ///!< number of tubes within the free-space [0,..],[unit].
+        float rate_of_feasible_tubes;   ///!< ratio between feasible tubes and total number of tubes [0,1],[unitless].
+    }solution;
+
 }fsmt_navigation_t;
 
 fsmt_navigation_t* fsmt_navigation_create(size_t number_of_tubes, size_t number_of_samples);
@@ -56,7 +72,7 @@ void fsmt_navigation_reset(fsmt_navigation_t *navigation);
 void fsmt_navigation_configure(fsmt_navigation_t *navigation, fsmt_params_t *params, fsmt_lidar_t *lidar);
 
 int fsmt_evaluate(fsmt_navigation_t *navigation, fsmt_lidar_t *lidar, fsmt_cartesian_point_array_t *plan,
-    float *orientation, fsmt_control_t *control, bool *is_forward);
+    float *orientation, fsmt_control_t *control);
 
 #ifdef __cplusplus
 }  // extern C
