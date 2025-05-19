@@ -42,6 +42,7 @@ typedef struct fsmt_tube_array_s{
     size_t size;
     fsmt_cartesian_point_t local_goal;
     float local_orientation;
+    float length;
 }fsmt_tube_array_t;
 
 /**

@@ -64,6 +64,9 @@ private:
     fsmt_control_t current_velocity_;
     bool tube_configured_;
     int recovery_mode_;
+
+    float max_speed_;
+    float min_speed_;
 };
 
 void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 

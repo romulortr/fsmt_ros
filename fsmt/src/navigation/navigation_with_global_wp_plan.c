@@ -17,14 +17,6 @@
 #include <stdlib.h>
 #include <errno.h>
 
-float glength_of_tube[] = { 0.9, 1.5/.75, 1., 1., 1.};
-float gspeed[] = {0.75, 0.75, 0.75, 0.75, 0.75};
-int gresult = 100;
-
-float ggsignal;
-float grotation;
-float gntubesavailable = 0;
-
 fsmt_navigation_t* fsmt_navigation_create(size_t number_of_tubes, size_t number_of_samples)
 {
     fsmt_navigation_t *navigation = (fsmt_navigation_t*) malloc(
@@ -85,8 +77,6 @@ void fsmt_navigation_reset(fsmt_navigation_t *navigation)
     fsmt_cartesian_point_array_reset(navigation->recovery.rotate.cartesian);
     fsmt_sensor_point_array_reset(navigation->recovery.rotate.sensor);
 
-    navigation->control.velocity.angular_rate = 0;
-    navigation->control.velocity.forward = 0;
     navigation->state = FSMT_STATE_NORMAL;
 }
 
@@ -129,16 +119,17 @@ void fsmt_tube_array_configure(fsmt_tube_array_t *array, fsmt_params_t *params, 
         }
     }
     array->size = number_of_tubes;
+    array->length = length_of_tube;
 }
 
 void fsmt_navigation_configure(fsmt_navigation_t *navigation, fsmt_params_t *params, fsmt_lidar_t *lidar)
 {
     fsmt_navigation_reset(navigation);
 
-    fsmt_tube_array_configure(navigation->nominal_horizon, params, lidar, glength_of_tube[0]);
-    fsmt_tube_array_configure(navigation->long_horizon, params, lidar, glength_of_tube[1]);
+    fsmt_tube_array_configure(navigation->nominal_horizon, params, lidar, 0.75);
+    fsmt_tube_array_configure(navigation->long_horizon, params, lidar, 2*0.75);
 
-    fsmt_tube_array_configure(navigation->recovery.backward, params, lidar, -glength_of_tube[0]);
+    fsmt_tube_array_configure(navigation->recovery.backward, params, lidar, -0.75);
 
     fsmt_cartesian_point_t p_sensor_origin = {
         .x = 0.055,
@@ -180,9 +171,12 @@ void fsmt_navigation_configure(fsmt_navigation_t *navigation, fsmt_params_t *par
  * Discrete: centralized, countable: steps to obstacle
  * Continuous: smallest change in actuation
 */
-int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *control, fsmt_lidar_t *lidar,
-    fsmt_cartesian_point_t local_goal, float local_goal_orientation)
+int fsmt_tube_array_evaluate_forward(fsmt_navigation_t *navigation, fsmt_control_t *control, fsmt_lidar_t *lidar)
 {
+    fsmt_tube_array_t *tubes = navigation->nominal_horizon;
+    fsmt_cartesian_point_t local_goal_position = tubes->local_goal;
+    float local_goal_orientation = tubes->local_orientation;
+    navigation->solution.number_of_feasible_tubes = 0;
 
     struct{
         int index;
@@ -208,21 +202,19 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
     float current_forward_vel = control->velocity.forward;
     float current_angular_rate = control->velocity.angular_rate;
     size_t number_of_tubes = tubes->size;
-    gntubesavailable =0;
+
     for(size_t i=0; i<number_of_tubes; i++)
     {
         bool new_best = false;
         fsmt_tube_t *ith_tube = tubes->tube[i];
         // is available?
-        // printf("1\n");
         int is_available = fsmt_availability(ith_tube->sensor->samples.edge, lidar);
         if(!is_available)
             continue;
-        gntubesavailable = gntubesavailable+1;
+        navigation->solution.number_of_feasible_tubes += 1;
         // distance to local goal
-        // printf("2\n");
         float distance_to_goal_cont = fsmt_distance_to_local_goal(ith_tube->cartesian,
-            &local_goal);
+            &local_goal_position);
     
         int distance_to_goal = distance_to_goal_cont < 0? 0 : 
             fsmt_discrete_distance(distance_to_goal_cont, 0, 0.2) + 1;
@@ -234,7 +226,6 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
         }
             
         // centralization
-        // printf("3\n");
         int is_outer_whisker_available = fsmt_availability(ith_tube->sensor->samples.whiskers.outer, lidar);
         if(best.is_outer_whisker_available > is_outer_whisker_available  && new_best==false){
             continue;
@@ -242,7 +233,6 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
             new_best = true;
         }
 
-        // printf("4\n");
         int is_front_whisker_available = fsmt_availability(ith_tube->sensor->samples.whiskers.front, lidar);
         if(best.is_front_whisker_available > is_front_whisker_available  && new_best==false){
             continue;
@@ -250,7 +240,6 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
             new_best = true;
         }
 
-        // printf("5\n");
         int is_inner_whisker_available = fsmt_availability(ith_tube->sensor->samples.whiskers.inner, lidar);
         if(best.is_inner_whisker_available > is_inner_whisker_available  && new_best==false){
             continue;
@@ -258,18 +247,14 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
             new_best = true;
         }
 
-        // printf("5\n");
-        // // distance to orientation
+        // distance to orientation
         float distance_to_orientation = fsmt_orientation_to_local_goal(&ith_tube->polar,
             local_goal_orientation);
 
         if(distance_to_orientation > M_PI/2)
         {
-            // printf("here: %f, local goal: %f\n",  ith_tube->polar.limits.angle.final, local_goal_orientation);
-            // printf("length: %f, radius: %f", i, ith_tube->maneuver.length, ith_tube->maneuver.radius);
             continue;        
         }
-            
         
         distance_to_orientation =  
             fsmt_discrete_distance(distance_to_orientation, 0, M_PI/9);
@@ -280,8 +265,7 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
             new_best = true;
         }
 
-        // printf("6\n");
-        // // change in actuaction (continuous metric).
+        // change in actuaction (continuous metric).
         float change_in_actuation = 0;
         if (control->velocity.forward > 0)
         {
@@ -308,16 +292,20 @@ int fsmt_tube_array_evaluate_forward(fsmt_tube_array_t *tubes, fsmt_control_t *c
         best.is_inner_whisker_available = is_inner_whisker_available;
         best.distance_to_orientation = distance_to_orientation;
         best.change_in_actuation = change_in_actuation;
-        gresult = best.distance_to_goal;
     }
-    gntubesavailable = gntubesavailable/number_of_tubes;
-    
+    navigation->solution.rate_of_feasible_tubes = 
+        ((float) navigation->solution.number_of_feasible_tubes)/number_of_tubes;
+    navigation->solution.distance_to_goal = best.distance_to_goal;
     return best.index;
 }
 
-int fsmt_tube_array_evaluate_backward(fsmt_tube_array_t *tubes, fsmt_control_t *control, fsmt_lidar_t *lidar,
-    fsmt_cartesian_point_t local_goal, float local_goal_orientation)
+int fsmt_tube_array_evaluate_backward(fsmt_navigation_t *navigation, fsmt_control_t *control, fsmt_lidar_t *lidar)
 {
+    fsmt_tube_array_t *tubes = navigation->recovery.backward;
+    fsmt_cartesian_point_t local_goal_position = navigation->nominal_horizon->local_goal;
+    float local_goal_orientation = navigation->nominal_horizon->local_orientation;
+    navigation->solution.number_of_feasible_tubes = 0;
+
     size_t number_of_tubes = tubes->size;
     bool free_array[number_of_tubes];
     int free_array_positive[number_of_tubes];
@@ -336,7 +324,7 @@ int fsmt_tube_array_evaluate_backward(fsmt_tube_array_t *tubes, fsmt_control_t *
         if(is_available == 0) continue;
  
         float distance_to_goal_cont = fsmt_distance_to_local_goal(ith_tube->cartesian,
-            &local_goal);
+            &local_goal_position);
 
         int distance_to_goal = distance_to_goal_cont < 0? 0 : 
         fsmt_discrete_distance(distance_to_goal_cont, 0, 0.4) + 1;
@@ -376,12 +364,15 @@ int fsmt_tube_array_evaluate_backward(fsmt_tube_array_t *tubes, fsmt_control_t *
 int fsmt_evaluate(fsmt_navigation_t *navigation, fsmt_lidar_t *lidar, fsmt_cartesian_point_array_t *plan, float *orientation,
     fsmt_control_t *current_control)
 {
-    int best_index=-1;
-    // Extract local goal andorientation
+    // pointers to simplify notation;
+    fsmt_tube_array_t *nominal_horizon = navigation->nominal_horizon;
+
+    // Extract local goal and orientation
+    float des_path_length = nominal_horizon->length;
     float path_length = 0;
     size_t plan_local_goal_index = 0;
 
-    while (path_length < glength_of_tube[0] && plan_local_goal_index+1 < plan->size){
+    while (path_length < des_path_length && plan_local_goal_index+1 < plan->size){
         float plan_step_dx = plan->points[plan_local_goal_index+1].x - plan->points[plan_local_goal_index].x;
         float plan_step_dy = plan->points[plan_local_goal_index+1].y - plan->points[plan_local_goal_index].y;   
         path_length += sqrtf(plan_step_dx*plan_step_dx + plan_step_dy*plan_step_dy);
@@ -396,159 +387,148 @@ int fsmt_evaluate(fsmt_navigation_t *navigation, fsmt_lidar_t *lidar, fsmt_carte
         plan->points[plan_local_goal_index].x - plan->points[plan_local_goal_index-10].x 
     );
 
-    float local_orientation0 = atan2f(
+    // Short term orientation.
+    float head_orientation = atan2f(
         plan->points[10].y - plan->points[0].y,
         plan->points[10].x - plan->points[0].x 
     );
 
-    float des_ang_rate; 
-    float amax = 0.75;
-    float dwmax = M_PI/3;
-    float control_frequency = 20.0;
-    float a,dw;
     float radius;
-    int bbest_index = -1;
-    float des_forward_vel;
-    navigation->solution.index.horizon = 1000;
-    float ntubesavailable=0;
-    gresult = 1000;
-    float vel_max = 1.0;
-    float vel_min = 0.25;
-    float rate_max = 0.75;
-    float rate_min = 0.2;
-    
-    float m = (vel_max-vel_min)/(rate_max-rate_min);
-    float b = vel_max - m*rate_max;
     int best_horizon = -1;
-    
+    int best_index=-1;
+    // CONFIGURE
     switch (navigation->state)
     {
     case FSMT_STATE_NORMAL:
-        gntubesavailable = 0;
-        best_index = fsmt_tube_array_evaluate_forward(navigation->nominal_horizon, current_control, lidar,
-            navigation->nominal_horizon->local_goal, navigation->nominal_horizon->local_orientation);
-
+        best_index = fsmt_tube_array_evaluate_forward(navigation, current_control, lidar);
         if(best_index >= 0)
         {
             navigation->solution.tube = navigation->nominal_horizon->tube[best_index];
-            // @TODO Udpate speed gracefully.
-            // navigation->control.velocity.forward = navigation->control.velocity.forward + a/control_frequency;
-            // navigation->control.velocity.angular_rate = navigation->control.velocity.forward/radius;
-        }else{
-             navigation->state = FSMT_STATE_STOP_TO_RECOVER;
+            radius = navigation->nominal_horizon->tube[best_index]->maneuver.radius;
+        }else
+        {
+            navigation->state = FSMT_STATE_STOP_TO_RECOVER;
         }
         break;
     
     case FSMT_STATE_STOP_TO_RECOVER:
-            // @TODO Stop gracefully.
-            // navigation->control.velocity.forward = navigation->control.velocity.forward + a/control_frequency;
-            // navigation->control.velocity.angular_rate = navigation->control.velocity.forward/radius;
-            navigation->control.velocity.forward = 0;
-            navigation->control.velocity.angular_rate = 0;
-            // if(fabs(current_control->velocity.forward) < 0.025 && fabs(current_control->velocity.angular_rate) < 0.025)
-            // {
-            //     navigation->control.velocity.forward = 0;
-            //     navigation->control.velocity.angular_rate = 0;
-            //     navigation->state = FSMT_STATE_START_RECOVER;
-            // } 
+        navigation->solution.tube = NULL;
+        if(fabs(current_control->velocity.forward) < 0.025 && fabs(current_control->velocity.angular_rate) < 0.025)
+        {
+            navigation->state = FSMT_STATE_START_RECOVER;
+        } 
         break;
     
-    // case FSMT_STATE_START_RECOVER:
-    //     best_index = fsmt_availability(navigation->recovery.rotate.sensor, lidar);
-    //     if(best_index == 1)
-    //     {
-    //         best_index = -2;
-    //         ggsignal = local_orientation0/fabs(local_orientation0);
-    //         grotation = local_orientation0;
-    //         navigation->state = FSMT_STATE_RECOVERY_ROTATE;
-    //     }else{
-    //         best_index = fsmt_tube_array_evaluate_backward(navigation->recovery.backward, current_control, lidar,
-    //         navigation->recovery.backward->local_goal, navigation->recovery.backward->local_orientation);
-    //         if(best_index >= 0)
-    //         {
-    //             navigation->state = FSMT_STATE_RECOVERY_MOVE_BACKWARD;
-    //         }else{
-    //             navigation->control.velocity.forward = -0.2;    
-    //         }
-    //         best_index = -1;
-    //     }
-    //     break;
+    case FSMT_STATE_START_RECOVER:
+        best_index = fsmt_availability(navigation->recovery.rotate.sensor, lidar);
+        if(fsmt_availability(navigation->recovery.rotate.sensor, lidar) == 1)
+        {
+            navigation->recovery.rotate.orientation_error = head_orientation;
+            navigation->state = FSMT_STATE_RECOVERY_ROTATE;
+        }
+        else{
+            best_index = fsmt_tube_array_evaluate_backward(navigation, current_control, lidar);
+            if(best_index >= 0)
+            {
+                navigation->state = FSMT_STATE_RECOVERY_MOVE_BACKWARD;
+            }else{
+                navigation->state = FSMT_STATE_RECOVERY_MOVE_BACKWARD_BLIND;
+            }
+        }
+        break;
 
-    // case FSMT_STATE_RECOVERY_MOVE_BACKWARD:
-    //     navigation->recovery.backward->local_goal = navigation->nominal_horizon->local_goal;
-    //     navigation->recovery.backward->local_orientation = navigation->nominal_horizon->local_orientation;
+    case FSMT_STATE_RECOVERY_MOVE_BACKWARD:
+        best_index = fsmt_tube_array_evaluate_backward(navigation, current_control, lidar);
+        if(best_index >= 0)
+        {
+            navigation->solution.tube = navigation->recovery.backward->tube[best_index];
+            radius = navigation->recovery.backward->tube[best_index]->maneuver.radius;
 
-    //     best_index = fsmt_tube_array_evaluate_backward(navigation->recovery.backward, current_control, lidar,
-    //         navigation->recovery.backward->local_goal, navigation->recovery.backward->local_orientation);
+        }else{
+            navigation->solution.tube = NULL;
+            navigation->state = FSMT_STATE_STOP_TO_NORMAL;
+        }
 
-    //     if(best_index >= 0)
-    //     {
-    //         radius = navigation->recovery.backward->tube[best_index]->maneuver.radius;
-    //         // @Speed up gracefully.
-    //         a = (-0.5 - navigation->control.velocity.forward)*control_frequency;
-    //         a = a > amax? amax : a;
-    //         a = a < -amax? -amax : a;
-    //         navigation->control.velocity.forward = navigation->control.velocity.forward + a/control_frequency;
-    //         navigation->control.velocity.angular_rate = navigation->control.velocity.forward/radius;
-    //     }else{
-    //         navigation->state = FSMT_STATE_STOP_TO_NORMAL;
-    //     }
+        if(fsmt_availability(navigation->recovery.rotate.sensor, lidar))
+        {
+            navigation->solution.tube = NULL;
+            navigation->state = FSMT_STATE_STOP_TO_RECOVER;
+        }
 
-    //     if(fsmt_availability(navigation->recovery.rotate.sensor, lidar))
-    //     {
-    //         navigation->state = FSMT_STATE_STOP_TO_RECOVER;
-    //     }
+        fsmt_tube_array_evaluate_forward(navigation, current_control, lidar);
+        if (navigation->solution.rate_of_feasible_tubes >= 0.2 && 
+            navigation->solution.distance_to_goal <= 1) // gresult has the distance to goal
+        {
+            navigation->solution.tube = NULL;
+            navigation->state = FSMT_STATE_STOP_TO_NORMAL;
+        }
+        break;
 
-    //     fsmt_tube_array_evaluate_forward(navigation->tubes[0], current_control, lidar,
-    //         navigation->tubes[0]->local_goal, navigation->tubes[0]->local_orientation);
+    case FSMT_STATE_RECOVERY_ROTATE:
+        navigation->solution.tube = NULL;
+        radius = navigation->recovery.rotate.orientation_error/fabs(navigation->recovery.rotate.orientation_error);
+        fsmt_tube_array_evaluate_forward(navigation, current_control, lidar);
+        if (navigation->solution.rate_of_feasible_tubes >= 0.2 && 
+            navigation->solution.distance_to_goal <= 1)
+        {
+            navigation->solution.tube = NULL;
+            navigation->state = FSMT_STATE_STOP_TO_NORMAL;
+        }
+        break;
 
-    //         if (gntubesavailable >= 0.2 && gresult <= 1)
-    //         navigation->state = FSMT_STATE_STOP_TO_NORMAL;
+    case FSMT_STATE_STOP_TO_NORMAL:
+        if(fabs(current_control->velocity.forward) < 0.05 || fabs(current_control->velocity.angular_rate) < 0.05)
+        {
+            navigation->state = FSMT_STATE_NORMAL;
+        } 
+        break;
 
-    //     break;
-
-    // case FSMT_STATE_RECOVERY_ROTATE:
-    //     best_index = 1;// fsmt_availability(navigation->recovery.rotate.sensor, lidar);
-    //     if(best_index == 1)
-    //     {
-    //         best_index = -2;
-    //         dw = (1*ggsignal - navigation->control.velocity.angular_rate)*control_frequency;
-    //         dw = dw > dwmax? dwmax : dw;
-    //         dw = dw < -dwmax? -dwmax : dw;
-    //         navigation->control.velocity.forward = 0;
-    //         navigation->control.velocity.angular_rate += dw/control_frequency;
-    //         grotation += navigation->control.velocity.angular_rate/control_frequency;
-    //         if(fabs(local_orientation0)<M_PI/36)
-    //         {
-    //             // best_index = fsmt_tube_array_evaluate_forward(navigation->tubes, current_control, lidar,
-    //             //     local_goal, local_goal_orientation);
-    //             if (best_index != -1)
-    //                 navigation->state = FSMT_STATE_STOP_TO_NORMAL;
-    //         }
-
-    //     }
-    //     else{
-    //         navigation->state = FSMT_STATE_STOP_TO_RECOVER;
-    //     }
-    //     break;
-    // case FSMT_STATE_STOP_TO_NORMAL:
-    //     // printf("FSMT_STATE_STOP_TO_NORMAL\n");
-    //         dw = (0 - navigation->control.velocity.angular_rate)*control_frequency;
-    //         dw = dw > 2*dwmax? 2*dwmax : dw;
-    //         dw = dw < -2*dwmax? -2*dwmax : dw;
-    //         navigation->control.velocity.forward = 0;
-    //         navigation->control.velocity.angular_rate += dw/control_frequency;
-    //         if(fabs(current_control->velocity.forward) < 0.05 || fabs(current_control->velocity.angular_rate) < 0.05)
-    //         {
-    //             navigation->control.velocity.forward = 0;
-    //             navigation->control.velocity.angular_rate = 0;
-    //             navigation->state = FSMT_STATE_NORMAL;
-    //         } 
-    //     break;
+    case FSMT_STATE_RECOVERY_MOVE_BACKWARD_BLIND:
+        navigation->solution.tube = NULL;
+        radius = 1000000;
+        fsmt_tube_array_evaluate_forward(navigation, current_control, lidar);
+        if (navigation->solution.rate_of_feasible_tubes >= 0.2 && 
+            navigation->solution.distance_to_goal <= 1)
+        {
+            navigation->solution.tube = NULL;
+            navigation->state = FSMT_STATE_STOP_TO_NORMAL;
+        }
+    break;
 
     default:
         break;
     }
+
+    // ACTION
+    switch (navigation->state)
+    {
+    case FSMT_STATE_NORMAL:
+        navigation->solution.control.velocity.forward = 1;
+        navigation->solution.control.velocity.angular_rate = 1/radius;
+        break;
+    
+    case FSMT_STATE_STOP_TO_RECOVER:
+    case FSMT_STATE_START_RECOVER:
+    case FSMT_STATE_STOP_TO_NORMAL:
+        navigation->solution.control.velocity.forward = 0;
+        navigation->solution.control.velocity.angular_rate = 0; 
+        break;
+    
+    case FSMT_STATE_RECOVERY_ROTATE:
+        navigation->solution.control.velocity.forward = 0;
+        navigation->solution.control.velocity.angular_rate = (M_PI/4)*radius;
+        break;
+
+    case FSMT_STATE_RECOVERY_MOVE_BACKWARD:
+    case FSMT_STATE_RECOVERY_MOVE_BACKWARD_BLIND:
+        navigation->solution.control.velocity.forward = -0.5;
+        navigation->solution.control.velocity.angular_rate = -0.5/radius;
+        break;
+
+    default:
+        break;
+    }
+
     return best_index;
 }
 

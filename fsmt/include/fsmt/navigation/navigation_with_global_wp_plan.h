@@ -30,22 +30,22 @@
 #define FSMT_STATE_STOP_TO_ROTATE 4
 #define FSMT_STATE_RECOVERY_ROTATE 5
 #define FSMT_STATE_STOP_TO_NORMAL 6
+#define FSMT_STATE_RECOVERY_MOVE_BACKWARD_BLIND 7
 
 typedef struct fsmt_navigation_s{
     // 
-    fsmt_tube_array_t *tubes[5];
     fsmt_tube_array_t *nominal_horizon;
     fsmt_tube_array_t *long_horizon;
     struct{
         fsmt_tube_array_t *backward;    
         struct{
             fsmt_sensor_point_array_t *sensor;
-            fsmt_cartesian_point_array_t *cartesian;            
+            fsmt_cartesian_point_array_t *cartesian;  
+            float orientation_error;          
         }rotate;
     }recovery;
     float length;
-    fsmt_control_t control;
-    fsmt_cartesian_point_t local_goal;
+    
     int state;
     
 
@@ -57,6 +57,8 @@ typedef struct fsmt_navigation_s{
         }index;
         // Pointer to selected tube.
         fsmt_tube_t *tube;
+        fsmt_control_t control;
+        float distance_to_goal;
         int number_of_feasible_tubes;   ///!< number of tubes within the free-space [0,..],[unit].
         float rate_of_feasible_tubes;   ///!< ratio between feasible tubes and total number of tubes [0,1],[unitless].
     }solution;
