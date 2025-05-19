@@ -45,14 +45,11 @@ typedef struct fsmt_navigation_s{
         }rotate;
     }recovery;
     float length;
-    
     int state;
     
-
     struct{
         // Stores arrays' indices to speed up access.
         struct{
-            int horizon;
             int tube;
         }index;
         // Pointer to selected tube.

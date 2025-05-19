@@ -67,6 +67,7 @@ private:
 
     float max_speed_;
     float min_speed_;
+    float min_rate_;
 };
 
 void fsmt_points_to_marker(visualization_msgs::Marker &marker, std::string frame_id, 

@@ -137,7 +137,7 @@ bool FSMTBaseLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel
         }else if (ratio_of_feasible_tubes > rate_max ){
             des_forward_vel = max_speed_;
         }else{
-            des_forward_vel = 0.5*(min_speed_ + max_speed_);
+            des_forward_vel = (0.4*min_speed_ + 0.6*max_speed_);
         }   
         // cmd_vel.angular.z =  des_forward_vel*control->velocity.angular_rate;   
 
